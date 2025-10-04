@@ -1,0 +1,280 @@
+# Prompt: “Generate ERPNext App: Qonto Connector (ERPNext v15, Docker, OAuth)”
+
+**You are a senior Frappe/ERPNext engineer.** Create a complete, installable Frappe app named **`qonto_connector`** for **ERPNext v15** that integrates **Qonto** via **OAuth2**. The app must support **one ERPNext site with multiple Companies**, and **each Company can have multiple bank accounts** mapped to multiple Qonto accounts. Hosting is **Docker**. Publisher: **Itanéo**.
+
+## Goals
+
+* OAuth2 connect to Qonto (multi-tenant per ERPNext site).
+* Sync **Qonto accounts & transactions** (incremental using `updated_at_from`).
+* Map **Qonto bank accounts → ERPNext Bank Accounts** per **Company**.
+* Upsert **Bank Transaction** records for reconciliation (idempotent).
+* Admin UI (Settings, mapping wizard, manual sync, logs, health card).
+* Secure token storage; scheduled sync with retries/backoff; detailed logging.
+* Tests + docs + Docker-friendly setup.
+
+## Tech & versions
+
+* **ERPNext v15 / Frappe v15** (pin explicitly).
+* Python 3.10+.
+* HTTP via `requests`; typing-friendly code; `ruff` + `mypy` (strict-ish).
+* Use Frappe **Password** fields for secrets.
+* I18N: en, fr.
+
+## App structure
+
+```
+qonto_connector/
+  qonto_connector/__init__.py
+  qonto_connector/hooks.py
+  qonto_connector/config/desktop.py
+  qonto_connector/config/docs.py
+  qonto_connector/qonto/
+    oauth.py
+    client.py
+    sync.py
+    mapping.py
+    webhooks.py
+    utils.py
+    constants.py
+    errors.py
+  qonto_connector/doctype/
+    qonto_settings/
+      qonto_settings.json
+      qonto_settings.py
+      qonto_settings.js
+    qonto_token/
+      qonto_token.json
+      qonto_token.py
+    qonto_account_map/
+      qonto_account_map.json
+      qonto_account_map.py
+    qonto_sync_log/
+      qonto_sync_log.json
+      qonto_sync_log.py
+  qonto_connector/api/
+    __init__.py
+    oauth.py
+    admin.py
+  qonto_connector/public/
+    css/qonto.css
+    js/qonto_settings.js
+    images/icon.svg
+  qonto_connector/patches/
+    txt/patches.txt
+  qonto_connector/tests/
+    test_oauth.py
+    test_sync.py
+    test_mapping.py
+  .env.example
+  README.md
+  LICENSE
+  requirements.txt
+  pyproject.toml
+  MANIFEST.in
+```
+
+## DocTypes
+
+### Qonto Settings (Single)
+
+Fields:
+
+* `environment` (Select: Sandbox, Production; default Sandbox)
+* `client_id` (Password), `client_secret` (Password)
+* `redirect_uri` (Data, default: `https://<your-domain>/api/method/qonto_connector.api.oauth.callback`)
+* `requested_scopes` (Small Text, default: `organization.read transactions`)
+* `poll_interval_minutes` (Int, default 15)
+* `default_sync_lookback_days` (Int, default 90)
+* Status: `connected` (Check, read-only), `last_sync_at` (Datetime, read-only), `last_error` (Small Text)
+  Buttons: **Connect to Qonto**, **Disconnect**, **Run Mapping Wizard**, **Sync Now**, **Test Connection**
+
+Permissions: System Manager + new role **Qonto Manager**.
+
+### Qonto Token (Single)
+
+* `access_token` (Password), `refresh_token` (Password), `token_type` (Data)
+* `expires_at` (Datetime)
+* `organization_id` (Data), `member_id` (Data), `scope` (Data)
+
+### Qonto Account Map (Child Table)
+
+* `company` (Link Company) — required
+* `qonto_bank_account_id` (Data) — required
+* `iban` (Data), `qonto_name` (Data)
+* `erpnext_bank_account` (Link Account filtered by `account_type="Bank"` and `company`)
+* `last_synced_at` (Datetime), `active` (Check, default 1)
+
+### Qonto Sync Log (DocType)
+
+* `run_at` (Datetime), `level` (Select: INFO/WARN/ERROR)
+* `message` (Small Text), `context_json` (Long Text)
+* `duration_ms` (Int), `items_processed` (Int)
+
+Auto-trim logs older than 90 days or beyond 10k entries.
+
+## Hooks & scheduler
+
+* `scheduler_events` → cron every **15 min**: `qonto_connector.qonto.sync.schedule_all`
+* `after_migrate` → ensure Settings + Token exist, ensure custom field `qonto_id` on **Bank Transaction**.
+* Whitelisted API: `qonto_connector.api.oauth.start`, `qonto_connector.api.oauth.callback`, `qonto_connector.api.admin.sync_now`, `qonto_connector.api.admin.resync`.
+
+## OAuth2 (multi-tenant per site)
+
+* **Start**: generate `state`, build Qonto authorize URL (scopes from settings), store `state` in cache 10 min.
+* **Callback**: validate `state`, exchange `code`→`access_token`/`refresh_token`/`expires_in`, compute `expires_at`, save encrypted; fetch `/v2/organization` to store `organization_id` and seed available accounts for mapping.
+* **Refresh**: before expiry (T-5 min) or on 401; 3 retries with exponential backoff.
+
+## Qonto client
+
+* Switch base URL by environment (Sandbox vs Prod).
+* Methods:
+
+  * `get_organization()`
+  * `list_accounts()` (from org payload)
+  * `iter_transactions(bank_account_id, updated_at_from, page_size)` — yields normalized tx, handles pagination & rate limits.
+  * Optional: `get_transaction(id, include_attachments=False)`
+* Rate-limit handling: backoff on 429/5xx with jitter; respect headers.
+
+## Sync engine
+
+* For each **active** mapping row:
+
+  * Ensure valid token.
+  * Determine `updated_at_from = last_synced_at or now() - default_sync_lookback_days`.
+  * Pull transactions; for each:
+
+    * **Normalize**:
+
+      * Posting date = `settled_at` (fallback `emitted_at`)
+      * Signed amount: `credit` → +; `debit` → −
+      * Description: `"{label} — {reference} — {counterparty_name}"` (skip empties)
+    * **Upsert** **Bank Transaction** (idempotent on `qonto_id` custom field):
+
+      * Fields: date, amount, description, currency from mapped ERPNext Bank Account’s company currency; JSON snapshot in hidden field for traceability.
+  * Update `last_synced_at`, commit per chunk; log summary.
+
+* Admin endpoints:
+
+  * `sync_now()` → enqueue immediate sync for all active mappings.
+  * `resync(from_date, account_id=None)` → backfill safely.
+
+## Webhooks (optional for later)
+
+* Prepare endpoint `/api/method/qonto_connector.webhooks.handle` with secret verification; keep **polling as v1 default**.
+
+## Security
+
+* Secrets in **Password** fields (encrypted).
+* Strict role checks; API endpoints require **System Manager or Qonto Manager** (callback allow_guest).
+* CSRF/state validation, no secrets in logs.
+
+## Docker-friendly bits
+
+* `.env.example` with:
+
+  ```
+  QONTO_CLIENT_ID=
+  QONTO_CLIENT_SECRET=
+  QONTO_ENV=Sandbox
+  ```
+* README section for Docker: mounting app into bench container, running `bench migrate`, and setting `redirect_uri` to the public site URL.
+
+## Tests
+
+* Mock Qonto OAuth and transaction pages.
+* Verify pagination, idempotency (no duplicates), mapping across **multiple Companies** and **multiple Bank Accounts per Company**.
+* GitHub Actions workflow sample running `bench --site test_site` tests.
+
+## Developer ergonomics & docs
+
+* README: install, Docker notes, configuring OAuth app, setting redirect URI, mapping wizard walkthrough, first sync, troubleshooting.
+* Health card in Settings (Connected?, Accounts mapped, Last Sync, Errors).
+* MIT license.
+* App metadata:
+
+  * `app_title = "Qonto Connector"`
+  * `app_publisher = "Itanéo"`
+  * `app_description = "Sync Qonto bank data into ERPNext"`
+  * `app_email = "dev@itaneo.example"` (placeholder)
+  * `app_icon = "octicon octicon-credit-card"`
+  * `app_license = "MIT"`
+
+## Representative code stubs
+
+**hooks.py**
+
+```python
+app_name = "qonto_connector"
+app_title = "Qonto Connector"
+app_publisher = "Itanéo"
+app_description = "Sync Qonto bank data into ERPNext"
+app_email = "dev@itaneo.example"
+app_license = "MIT"
+app_icon = "octicon octicon-credit-card"
+app_color = "blue"
+
+scheduler_events = {
+    "cron": {"*/15 * * * *": ["qonto_connector.qonto.sync.schedule_all"]}
+}
+
+after_migrate = "qonto_connector.qonto.utils.ensure_setup"
+```
+
+**api/oauth.py**
+
+```python
+import frappe
+
+@frappe.whitelist()
+def start():
+    from qonto_connector.qonto.oauth import start_oauth
+    return start_oauth()
+
+@frappe.whitelist(allow_guest=True)
+def callback(code: str=None, state: str=None):
+    from qonto_connector.qonto.oauth import handle_callback
+    handle_callback(code, state)
+    return "Qonto connection successful. You can close this window."
+```
+
+**qonto/sync.py**
+
+```python
+import datetime as dt
+import frappe
+from .client import QontoClient
+from .mapping import get_active_mappings, upsert_bank_transaction
+from .utils import utcnow
+
+def schedule_all():
+    settings = frappe.get_single("Qonto Settings")
+    client = QontoClient(settings)
+    for m in get_active_mappings():
+        updated_from = m.last_synced_at or (utcnow() - dt.timedelta(days=settings.default_sync_lookback_days))
+        total = 0
+        for tx in client.iter_transactions(m.qonto_bank_account_id, updated_from):
+            upsert_bank_transaction(m, tx)
+            total += 1
+        m.last_synced_at = utcnow()
+        m.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.logger().info({"msg":"qonto sync done","account":m.qonto_bank_account_id,"count":total})
+```
+
+**README install snippet**
+
+```bash
+bench get-app qonto_connector <your-git-url>
+bench --site <site> install-app qonto_connector
+# In ERPNext: open Qonto Settings → set Client ID/Secret → Connect to Qonto → Map accounts → Sync Now
+```
+
+**Acceptance criteria**
+
+* Works on **ERPNext v15** under **Docker**.
+* One site → multiple Companies; each Company → multiple mapped Qonto bank accounts.
+* OAuth connect + token refresh OK.
+* Transactions import idempotently across runs; appear in **Bank Reconciliation**.
+* Logs & health card visible; manual “Sync Now” works.
+
+**Generate all files, doctypes, and tests as above with these defaults baked in.** Keep code clean, typed, and lint-passing. Use placeholders where secrets/domains are needed.
