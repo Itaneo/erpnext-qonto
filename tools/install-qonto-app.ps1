@@ -44,7 +44,7 @@ if ($running -ne $ContainerName) {
 }
 
 Write-Info "Step 1: Getting app from mounted volume..."
-docker exec -it $ContainerName bash -c "cd /home/frappe/frappe-bench/apps && ls -la qonto_connector"
+docker exec $ContainerName bash -c "cd /home/frappe/frappe-bench/apps && ls -la qonto_connector"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Custom "✗ Qonto Connector app not found in mounted volume"
@@ -54,7 +54,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "✓ Qonto Connector app found"
 
 Write-Info "`nStep 2: Installing dependencies..."
-docker exec -it $ContainerName bash -c "cd /home/frappe/frappe-bench/apps/qonto_connector && pip3 install -r requirements.txt"
+docker exec $ContainerName bash -c "pip3 install -r /home/frappe/frappe-bench/apps/qonto_connector/requirements.txt"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Custom "✗ Failed to install dependencies"
@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "✓ Dependencies installed"
 
 Write-Info "`nStep 3: Installing app on site '$SiteName'..."
-docker exec -it $ContainerName bash -c "bench --site $SiteName install-app qonto_connector"
+docker exec $ContainerName bash -c "bench --site $SiteName install-app qonto_connector"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Custom "✗ Failed to install app"
@@ -74,7 +74,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "✓ App installed"
 
 Write-Info "`nStep 4: Running migrations..."
-docker exec -it $ContainerName bash -c "bench --site $SiteName migrate"
+docker exec $ContainerName bash -c "bench --site $SiteName migrate"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error-Custom "✗ Migration failed"
@@ -84,12 +84,12 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "✓ Migrations completed"
 
 Write-Info "`nStep 5: Clearing cache..."
-docker exec -it $ContainerName bash -c "bench --site $SiteName clear-cache"
+docker exec $ContainerName bash -c "bench --site $SiteName clear-cache"
 
 Write-Success "✓ Cache cleared"
 
 Write-Info "`nStep 6: Building assets..."
-docker exec -it $ContainerName bash -c "bench build"
+docker exec $ContainerName bash -c "bench build"
 
 Write-Success "✓ Assets built"
 

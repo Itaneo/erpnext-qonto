@@ -157,7 +157,7 @@ SITES_DIR=$BaseDir\sites
 LOGS_DIR=$BaseDir\logs
 APPS_DIR=$BaseDir\apps
 MARIADB_DIR=$BaseDir\mariadb
-QONTO_CONNECTOR_DIR=$ProjectRoot\qonto_connector
+QONTO_CONNECTOR_DIR=$ProjectRoot
 
 # Network Configuration
 BACKEND_PORT=8000

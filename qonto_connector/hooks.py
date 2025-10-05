@@ -10,8 +10,9 @@ app_version = "1.0.0"
 # ------------------
 
 # Include JS / CSS files in the desk
-app_include_css = "/assets/qonto_connector/css/qonto.css"
-app_include_js = "/assets/qonto_connector/js/qonto_settings.js"
+# NOTE: DO NOT include files globally as they affect all pages including login
+# app_include_css = "/assets/qonto_connector/css/qonto.css"
+# app_include_js = "/assets/qonto_connector/js/qonto_settings.js"
 
 # Include JS / CSS in a specific web page
 # page_js = {"page" : "public/js/file.js"}
