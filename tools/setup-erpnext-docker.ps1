@@ -157,7 +157,7 @@ SITES_DIR=$BaseDir\sites
 LOGS_DIR=$BaseDir\logs
 APPS_DIR=$BaseDir\apps
 MARIADB_DIR=$BaseDir\mariadb
-QONTO_CONNECTOR_DIR=$ProjectRoot\qonto_connector
+QONTO_CONNECTOR_DIR=$ProjectRoot
 
 # Network Configuration
 BACKEND_PORT=8000
@@ -279,10 +279,14 @@ services:
           bench --site `${SITE_NAME} install-app erpnext;
           echo 'Installing Qonto Connector app';
           cd /home/frappe/frappe-bench;
+          echo 'Installing Python dependencies...';
+          pip3 install -q -e /home/frappe/frappe-bench/apps/qonto_connector;
+          echo 'Adding app to apps.txt...';
           if ! grep -q 'qonto_connector' sites/apps.txt; then
             echo 'qonto_connector' >> sites/apps.txt;
           fi;
-          bench --site `${SITE_NAME} install-app qonto_connector;
+          echo 'Installing app on site...';
+          bench --site `${SITE_NAME} install-app qonto_connector --force;
           bench --site `${SITE_NAME} set-config developer_mode 1;
           bench --site `${SITE_NAME} clear-cache;
         fi;
