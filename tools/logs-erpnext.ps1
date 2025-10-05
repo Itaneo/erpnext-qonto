@@ -61,5 +61,5 @@ if ($Service) {
 
 Write-Host "Press Ctrl+C to exit`n" -ForegroundColor Yellow
 
-docker-compose @composeArgs
+docker compose @composeArgs
 

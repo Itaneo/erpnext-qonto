@@ -23,7 +23,7 @@ if (!(Test-Path $DockerComposeFile)) {
 }
 
 Write-Host "Starting ERPNext containers..." -ForegroundColor Cyan
-docker-compose -f $DockerComposeFile start
+docker compose -f $DockerComposeFile start
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✓ Containers started successfully" -ForegroundColor Green

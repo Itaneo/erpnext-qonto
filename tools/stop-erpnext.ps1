@@ -29,10 +29,10 @@ $DockerComposeFile = Join-Path $ProjectRoot "docker-compose.yml"
 Write-Host "Stopping ERPNext containers..." -ForegroundColor Cyan
 
 if ($Remove) {
-    docker-compose -f $DockerComposeFile down -v
+    docker compose -f $DockerComposeFile down -v
     Write-Host "✓ Containers stopped and removed (including volumes)" -ForegroundColor Green
 } else {
-    docker-compose -f $DockerComposeFile stop
+    docker compose -f $DockerComposeFile stop
     Write-Host "✓ Containers stopped" -ForegroundColor Green
 }
 

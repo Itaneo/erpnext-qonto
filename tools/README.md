@@ -183,6 +183,9 @@ docker container prune
 
 # View Docker disk usage
 docker system df
+
+# View compose services
+docker compose -f ..\docker-compose.yml ps
 ```
 
 ## 🐛 Troubleshooting

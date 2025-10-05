@@ -157,6 +157,7 @@ SITES_DIR=$BaseDir\sites
 LOGS_DIR=$BaseDir\logs
 APPS_DIR=$BaseDir\apps
 MARIADB_DIR=$BaseDir\mariadb
+QONTO_CONNECTOR_DIR=$ProjectRoot\qonto_connector
 
 # Network Configuration
 BACKEND_PORT=8000
@@ -170,8 +171,6 @@ Write-Success "✓ .env file created"
 # Create docker-compose.yml
 Write-Info "`nCreating docker-compose.yml..."
 $dockerComposeContent = @"
-version: "3.8"
-
 services:
   # MariaDB Database
   mariadb:
@@ -264,26 +263,32 @@ services:
         source: `${LOGS_DIR}
         target: /home/frappe/frappe-bench/logs
       - type: bind
-        source: $ProjectRoot\qonto_connector
+        source: `${QONTO_CONNECTOR_DIR}
         target: /home/frappe/frappe-bench/apps/qonto_connector
     networks:
       - erpnext-network
     ports:
       - "`${BACKEND_PORT}:8000"
+    working_dir: /home/frappe/frappe-bench/sites
     command: >
       bash -c "
-        if [ ! -d sites/`${SITE_NAME} ]; then
+        cd /home/frappe/frappe-bench/sites;
+        if [ ! -d `${SITE_NAME} ]; then
           echo 'Creating new site: `${SITE_NAME}';
-          bench new-site `${SITE_NAME}
-            --db-root-password `${DB_ROOT_PASSWORD}
-            --admin-password `${ADMIN_PASSWORD}
-            --no-mariadb-socket;
+          bench new-site `${SITE_NAME} --db-root-password `${DB_ROOT_PASSWORD} --admin-password `${ADMIN_PASSWORD} --no-mariadb-socket;
           bench --site `${SITE_NAME} install-app erpnext;
           bench --site `${SITE_NAME} set-config developer_mode 1;
           bench --site `${SITE_NAME} clear-cache;
         fi;
-        bench start
+        cd /home/frappe/frappe-bench;
+        bench serve --port 8000
       "
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8000 > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   # ERPNext Frontend (Nginx)
   frontend:
@@ -291,7 +296,8 @@ services:
     container_name: erpnext-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       BACKEND: backend:8000
       SOCKETIO: socketio:9000
@@ -304,6 +310,8 @@ services:
       - erpnext-network
     ports:
       - "`${FRONTEND_PORT}:8080"
+    working_dir: /home/frappe/frappe-bench
+    command: ["nginx-entrypoint.sh"]
 
   # Socketio for real-time features
   socketio:
@@ -311,9 +319,12 @@ services:
     container_name: erpnext-socketio
     restart: unless-stopped
     depends_on:
-      - redis-socketio
+      backend:
+        condition: service_healthy
+      redis-socketio:
+        condition: service_healthy
     environment:
-      REDIS_SOCKETIO: `${REDIS_SOCKETIO_HOST}:6379
+      REDIS_SOCKETIO: redis-socketio:6379
     volumes:
       - type: bind
         source: `${SITES_DIR}
@@ -322,7 +333,8 @@ services:
       - erpnext-network
     ports:
       - "`${SOCKETIO_PORT}:9000"
-    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    working_dir: /home/frappe/frappe-bench
+    command: ["node", "apps/frappe/socketio.js"]
 
   # Queue Workers
   queue-default:
@@ -330,7 +342,12 @@ services:
     container_name: erpnext-queue-default
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
     environment:
       DB_HOST: `${DB_HOST}
       REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
@@ -340,10 +357,11 @@ services:
         source: `${SITES_DIR}
         target: /home/frappe/frappe-bench/sites
       - type: bind
-        source: $ProjectRoot\qonto_connector
+        source: `${QONTO_CONNECTOR_DIR}
         target: /home/frappe/frappe-bench/apps/qonto_connector
     networks:
       - erpnext-network
+    working_dir: /home/frappe/frappe-bench
     command: ["bench", "worker", "--queue", "default"]
 
   queue-short:
@@ -351,7 +369,12 @@ services:
     container_name: erpnext-queue-short
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
     environment:
       DB_HOST: `${DB_HOST}
       REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
@@ -361,10 +384,11 @@ services:
         source: `${SITES_DIR}
         target: /home/frappe/frappe-bench/sites
       - type: bind
-        source: $ProjectRoot\qonto_connector
+        source: `${QONTO_CONNECTOR_DIR}
         target: /home/frappe/frappe-bench/apps/qonto_connector
     networks:
       - erpnext-network
+    working_dir: /home/frappe/frappe-bench
     command: ["bench", "worker", "--queue", "short"]
 
   queue-long:
@@ -372,7 +396,12 @@ services:
     container_name: erpnext-queue-long
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
     environment:
       DB_HOST: `${DB_HOST}
       REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
@@ -382,10 +411,11 @@ services:
         source: `${SITES_DIR}
         target: /home/frappe/frappe-bench/sites
       - type: bind
-        source: $ProjectRoot\qonto_connector
+        source: `${QONTO_CONNECTOR_DIR}
         target: /home/frappe/frappe-bench/apps/qonto_connector
     networks:
       - erpnext-network
+    working_dir: /home/frappe/frappe-bench
     command: ["bench", "worker", "--queue", "long"]
 
   # Scheduler
@@ -394,7 +424,12 @@ services:
     container_name: erpnext-scheduler
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
     environment:
       DB_HOST: `${DB_HOST}
       REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
@@ -404,10 +439,11 @@ services:
         source: `${SITES_DIR}
         target: /home/frappe/frappe-bench/sites
       - type: bind
-        source: $ProjectRoot\qonto_connector
+        source: `${QONTO_CONNECTOR_DIR}
         target: /home/frappe/frappe-bench/apps/qonto_connector
     networks:
       - erpnext-network
+    working_dir: /home/frappe/frappe-bench
     command: ["bench", "schedule"]
 
 networks:
@@ -427,7 +463,7 @@ Write-Success "✓ docker-compose.yml created"
 # Pull images if requested
 if ($Pull) {
     Write-Info "`nPulling Docker images..."
-    docker-compose -f $DockerComposeFile pull
+    docker compose -f $DockerComposeFile pull
     if ($LASTEXITCODE -eq 0) {
         Write-Success "✓ Images pulled successfully"
     } else {
@@ -442,7 +478,7 @@ if ($Recreate) {
     $composeArgs += "--force-recreate"
 }
 
-docker-compose @composeArgs
+docker compose @composeArgs
 
 if ($LASTEXITCODE -eq 0) {
     Write-Success "`n✓ ERPNext containers started successfully!"
@@ -456,13 +492,14 @@ Write-Info "`nWaiting for services to be ready (this may take a few minutes)..."
 $maxAttempts = 60
 $attempt = 0
 $ready = $false
+$frontendPort = 8080
 
 while ($attempt -lt $maxAttempts -and -not $ready) {
     $attempt++
     Start-Sleep -Seconds 5
     
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$($env:FRONTEND_PORT = '8080')" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
+        $response = Invoke-WebRequest -Uri "http://localhost:$frontendPort" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
         if ($response.StatusCode -eq 200) {
             $ready = $true
         }
