@@ -1,10 +1,14 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Installs Qonto Connector app in ERPNext
+    Manually installs or reinstalls Qonto Connector app in ERPNext
 
 .DESCRIPTION
-    Installs and configures the Qonto Connector app in the ERPNext site.
+    NOTE: The Qonto Connector app is now automatically installed during
+    initial setup. This script is only needed for:
+    - Reinstalling the app after updates
+    - Troubleshooting installation issues
+    - Installing on existing sites that were created before this feature
 
 .PARAMETER SiteName
     The ERPNext site name (default: erpnext.local)
@@ -30,7 +34,8 @@ function Write-Success { param($Message) Write-Host $Message -ForegroundColor Gr
 function Write-Error-Custom { param($Message) Write-Host $Message -ForegroundColor Red }
 
 Write-Host "`n==================================================" -ForegroundColor Magenta
-Write-Host "   Qonto Connector Installation" -ForegroundColor Magenta
+Write-Host "   Qonto Connector Manual Installation" -ForegroundColor Magenta
+Write-Host "   (App is auto-installed on new sites)" -ForegroundColor Yellow
 Write-Host "==================================================" -ForegroundColor Magenta
 Write-Host ""
 
@@ -88,10 +93,24 @@ docker exec $ContainerName bash -c "bench --site $SiteName clear-cache"
 
 Write-Success "✓ Cache cleared"
 
+Write-Info "`nStep 5.1: Clearing website cache..."
+docker exec $ContainerName bash -c "bench --site $SiteName clear-website-cache"
+
+Write-Success "✓ Website cache cleared"
+
 Write-Info "`nStep 6: Building assets..."
 docker exec $ContainerName bash -c "bench build"
 
 Write-Success "✓ Assets built"
+
+Write-Info "`nStep 7: Restarting frontend to pick up new assets..."
+docker restart erpnext-frontend | Out-Null
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "⚠ Could not restart frontend automatically. Run: docker restart erpnext-frontend" -ForegroundColor Yellow
+} else {
+    Write-Success "✓ Frontend restarted"
+}
 
 Write-Host "`n==================================================" -ForegroundColor Magenta
 Write-Host "   Installation Complete!" -ForegroundColor Green

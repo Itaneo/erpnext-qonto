@@ -25,6 +25,7 @@ This will:
 - Pull required Docker images
 - Start all ERPNext services
 - Initialize a new ERPNext site
+- **Automatically install the Qonto Connector app**
 
 **Parameters:**
 
@@ -39,9 +40,17 @@ This will:
 .\tools\setup-erpnext-docker.ps1 -SiteName "dev.local" -AdminPassword "MySecurePass123" -Pull
 ```
 
-### 2. Install Qonto Connector
+### 2. Access ERPNext
 
-After ERPNext is running, install the Qonto Connector app:
+After setup completes, access ERPNext at http://localhost:8080 and log in with:
+- Username: `Administrator`
+- Password: `admin` (or what you specified)
+
+The Qonto Connector app is already installed and ready to configure!
+
+### 3. (Optional) Manual App Reinstallation
+
+If you need to reinstall or update the Qonto Connector app manually:
 
 ```powershell
 .\tools\install-qonto-app.ps1
@@ -49,6 +58,11 @@ After ERPNext is running, install the Qonto Connector app:
 
 **Parameters:**
 - `-SiteName` - Target site name (default: `erpnext.local`)
+
+**Use this script for:**
+- Reinstalling after app updates
+- Troubleshooting installation issues
+- Installing on existing sites created before auto-install feature
 
 ## 🔧 Management Scripts
 

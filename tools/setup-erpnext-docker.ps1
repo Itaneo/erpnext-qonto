@@ -157,7 +157,7 @@ SITES_DIR=$BaseDir\sites
 LOGS_DIR=$BaseDir\logs
 APPS_DIR=$BaseDir\apps
 MARIADB_DIR=$BaseDir\mariadb
-QONTO_CONNECTOR_DIR=$ProjectRoot
+QONTO_CONNECTOR_DIR=$ProjectRoot\qonto_connector
 
 # Network Configuration
 BACKEND_PORT=8000
@@ -277,6 +277,12 @@ services:
           echo 'Creating new site: `${SITE_NAME}';
           bench new-site `${SITE_NAME} --db-root-password `${DB_ROOT_PASSWORD} --admin-password `${ADMIN_PASSWORD} --no-mariadb-socket;
           bench --site `${SITE_NAME} install-app erpnext;
+          echo 'Installing Qonto Connector app';
+          cd /home/frappe/frappe-bench;
+          if ! grep -q 'qonto_connector' sites/apps.txt; then
+            echo 'qonto_connector' >> sites/apps.txt;
+          fi;
+          bench --site `${SITE_NAME} install-app qonto_connector;
           bench --site `${SITE_NAME} set-config developer_mode 1;
           bench --site `${SITE_NAME} clear-cache;
         fi;
@@ -542,8 +548,9 @@ Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan
 Write-Host "  1. Access ERPNext at http://localhost:8080" -ForegroundColor White
 Write-Host "  2. Log in with Administrator/$AdminPasswordPlain" -ForegroundColor White
-Write-Host "  3. Install the Qonto Connector app" -ForegroundColor White
-Write-Host "  4. Configure Qonto Settings" -ForegroundColor White
+Write-Host "  3. Navigate to Qonto Settings (already installed)" -ForegroundColor White
+Write-Host "  4. Configure your Qonto API credentials" -ForegroundColor White
+Write-Host "  5. Set up account mappings and start syncing" -ForegroundColor White
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Magenta
 Write-Host ""
