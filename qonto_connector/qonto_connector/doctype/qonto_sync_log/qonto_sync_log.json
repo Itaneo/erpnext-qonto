@@ -1,0 +1,86 @@
+{
+ "actions": [],
+ "autoname": "format:QONTO-LOG-{#####}",
+ "creation": "2025-10-04 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "run_at",
+  "level",
+  "message",
+  "context_json",
+  "duration_ms",
+  "items_processed"
+ ],
+ "fields": [
+  {
+   "fieldname": "run_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Run At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Level",
+   "options": "INFO\nWARN\nERROR",
+   "reqd": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Message"
+  },
+  {
+   "fieldname": "context_json",
+   "fieldtype": "Long Text",
+   "label": "Context"
+  },
+  {
+   "fieldname": "duration_ms",
+   "fieldtype": "Int",
+   "label": "Duration (ms)"
+  },
+  {
+   "fieldname": "items_processed",
+   "fieldtype": "Int",
+   "label": "Items Processed"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Qonto Connector",
+ "name": "Qonto Sync Log",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Qonto Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

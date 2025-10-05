@@ -1,0 +1,110 @@
+/* Qonto Connector - Custom Styles */
+
+.qonto-sync-status {
+    padding: 15px;
+}
+
+.qonto-sync-status p {
+    margin-bottom: 10px;
+}
+
+.qonto-sync-status h5 {
+    margin-top: 20px;
+    margin-bottom: 15px;
+    font-weight: 600;
+}
+
+.qonto-connection-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.qonto-connection-indicator.connected {
+    background-color: #28a745;
+}
+
+.qonto-connection-indicator.disconnected {
+    background-color: #dc3545;
+}
+
+.qonto-account-card {
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background-color: #f8f9fa;
+}
+
+.qonto-account-card h6 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.qonto-account-card .badge {
+    margin-left: 10px;
+}
+
+/* Log level colors */
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+/* Button styling */
+.btn-qonto {
+    background-color: #FF6B35;
+    color: white;
+    border: none;
+}
+
+.btn-qonto:hover {
+    background-color: #e55b2a;
+    color: white;
+}
+
+/* Status badges */
+.badge-qonto-active {
+    background-color: #28a745;
+}
+
+.badge-qonto-inactive {
+    background-color: #6c757d;
+}
+
+.badge-qonto-error {
+    background-color: #dc3545;
+}
+
+/* Responsive table styling */
+.qonto-table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.qonto-table-responsive table {
+    min-width: 600px;
+}
+
+/* Loading indicator */
+.qonto-loading {
+    text-align: center;
+    padding: 20px;
+}
+
+.qonto-loading::after {
+    content: "⏳ Loading...";
+    font-size: 16px;
+    color: #6c757d;
+}
+

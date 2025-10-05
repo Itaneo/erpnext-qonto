@@ -1,0 +1,168 @@
+{
+ "actions": [],
+ "creation": "2025-10-04 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_api",
+  "environment",
+  "api_login",
+  "api_secret_key",
+  "column_break_1",
+  "test_connection",
+  "section_sync",
+  "poll_interval_minutes",
+  "default_sync_lookback_days",
+  "section_status",
+  "connected",
+  "organization_id",
+  "organization_name",
+  "column_break_2",
+  "last_sync_at",
+  "last_error",
+  "section_mappings",
+  "account_mappings"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_api",
+   "fieldtype": "Section Break",
+   "label": "API Configuration"
+  },
+  {
+   "default": "Sandbox",
+   "fieldname": "environment",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Environment",
+   "options": "Sandbox\nProduction",
+   "reqd": 1
+  },
+  {
+   "description": "Qonto organization slug",
+   "fieldname": "api_login",
+   "fieldtype": "Data",
+   "label": "API Login",
+   "reqd": 1
+  },
+  {
+   "fieldname": "api_secret_key",
+   "fieldtype": "Password",
+   "label": "API Secret Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_sync",
+   "fieldtype": "Section Break",
+   "label": "Sync Configuration"
+  },
+  {
+   "default": "15",
+   "description": "How often to sync transactions (in minutes)",
+   "fieldname": "poll_interval_minutes",
+   "fieldtype": "Int",
+   "label": "Sync Interval (minutes)"
+  },
+  {
+   "default": "90",
+   "description": "Number of days to look back for initial sync",
+   "fieldname": "default_sync_lookback_days",
+   "fieldtype": "Int",
+   "label": "Default Lookback Days"
+  },
+  {
+   "fieldname": "section_status",
+   "fieldtype": "Section Break",
+   "label": "Connection Status"
+  },
+  {
+   "default": "0",
+   "fieldname": "connected",
+   "fieldtype": "Check",
+   "label": "Connected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "organization_id",
+   "fieldtype": "Data",
+   "label": "Organization ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "organization_name",
+   "fieldtype": "Data",
+   "label": "Organization Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_at",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_mappings",
+   "fieldtype": "Section Break",
+   "label": "Account Mappings"
+  },
+  {
+   "fieldname": "account_mappings",
+   "fieldtype": "Table",
+   "label": "Account Mappings",
+   "options": "Qonto Account Mapping"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "test_connection",
+   "fieldtype": "Button",
+   "label": "Test Connection"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-10-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Qonto Connector",
+ "name": "Qonto Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Qonto Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

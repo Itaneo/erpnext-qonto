@@ -1,280 +1,1005 @@
-# Prompt: “Generate ERPNext App: Qonto Connector (ERPNext v15, Docker, OAuth)”
+# Qonto Connector for ERPNext v15 - Complete Implementation Guide
 
-**You are a senior Frappe/ERPNext engineer.** Create a complete, installable Frappe app named **`qonto_connector`** for **ERPNext v15** that integrates **Qonto** via **OAuth2**. The app must support **one ERPNext site with multiple Companies**, and **each Company can have multiple bank accounts** mapped to multiple Qonto accounts. Hosting is **Docker**. Publisher: **Itanéo**.
+You are an expert Frappe/ERPNext v15 developer creating a production-ready banking integration app.
 
-## Goals
+## 🎯 PRIMARY OBJECTIVE
 
-* OAuth2 connect to Qonto (multi-tenant per ERPNext site).
-* Sync **Qonto accounts & transactions** (incremental using `updated_at_from`).
-* Map **Qonto bank accounts → ERPNext Bank Accounts** per **Company**.
-* Upsert **Bank Transaction** records for reconciliation (idempotent).
-* Admin UI (Settings, mapping wizard, manual sync, logs, health card).
-* Secure token storage; scheduled sync with retries/backoff; detailed logging.
-* Tests + docs + Docker-friendly setup.
+Build **`qonto_connector`** - a Frappe app that syncs Qonto bank transactions into ERPNext v15 for multi-company setups using API Key authentication.
 
-## Tech & versions
+**Core Requirements:**
 
-* **ERPNext v15 / Frappe v15** (pin explicitly).
-* Python 3.10+.
-* HTTP via `requests`; typing-friendly code; `ruff` + `mypy` (strict-ish).
-* Use Frappe **Password** fields for secrets.
-* I18N: en, fr.
+- ERPNext v15 / Frappe v15 (strict version)
+- Docker-first deployment
+- API Key authentication (NO OAuth)
+- Multi-company, multi-account support
+- Production-ready with tests and docs
 
-## App structure
+## 🏗️ PROJECT STRUCTURE (EXACT)
 
-```
+```text
 qonto_connector/
-  qonto_connector/__init__.py
-  qonto_connector/hooks.py
-  qonto_connector/config/desktop.py
-  qonto_connector/config/docs.py
-  qonto_connector/qonto/
-    oauth.py
-    client.py
-    sync.py
-    mapping.py
-    webhooks.py
-    utils.py
-    constants.py
-    errors.py
-  qonto_connector/doctype/
-    qonto_settings/
-      qonto_settings.json
-      qonto_settings.py
-      qonto_settings.js
-    qonto_token/
-      qonto_token.json
-      qonto_token.py
-    qonto_account_map/
-      qonto_account_map.json
-      qonto_account_map.py
-    qonto_sync_log/
-      qonto_sync_log.json
-      qonto_sync_log.py
-  qonto_connector/api/
-    __init__.py
-    oauth.py
-    admin.py
-  qonto_connector/public/
-    css/qonto.css
-    js/qonto_settings.js
-    images/icon.svg
-  qonto_connector/patches/
-    txt/patches.txt
-  qonto_connector/tests/
-    test_oauth.py
-    test_sync.py
-    test_mapping.py
-  .env.example
-  README.md
-  LICENSE
-  requirements.txt
-  pyproject.toml
-  MANIFEST.in
+├── pyproject.toml               # Python package config
+├── setup.py                     # Frappe app setup
+├── requirements.txt             # Python dependencies
+├── MANIFEST.in                  # Package manifest
+├── LICENSE                      # MIT License
+├── README.md                    # Comprehensive docs
+├── .env.example                 # Environment template
+├── qonto_connector/
+│   ├── __init__.py              # App version info
+│   ├── hooks.py                 # Frappe hooks config
+│   ├── patches.txt              # Database patches list
+│   ├── modules.txt              # Module list
+│   ├── config/
+│   │   ├── __init__.py
+│   │   ├── desktop.py           # Desktop icons
+│   │   └── docs.py              # Documentation config
+│   ├── qonto_connector/         # Module directory
+│   │   ├── __init__.py
+│   │   └── doctype/
+│   │       ├── __init__.py
+│   │       ├── qonto_settings/
+│   │       │   ├── __init__.py
+│   │       │   ├── qonto_settings.json
+│   │       │   ├── qonto_settings.py
+│   │       │   ├── qonto_settings.js
+│   │       │   └── test_qonto_settings.py
+│   │       ├── qonto_account_mapping/
+│   │       │   ├── __init__.py
+│   │       │   ├── qonto_account_mapping.json
+│   │       │   └── qonto_account_mapping.py
+│   │       └── qonto_sync_log/
+│   │           ├── __init__.py
+│   │           ├── qonto_sync_log.json
+│   │           └── qonto_sync_log.py
+│   ├── qonto/                   # Core business logic
+│   │   ├── __init__.py
+│   │   ├── client.py            # Qonto API client
+│   │   ├── sync.py              # Sync engine
+│   │   ├── mapping.py           # Account mapping logic
+│   │   ├── utils.py             # Utilities
+│   │   ├── constants.py         # Constants
+│   │   └── exceptions.py        # Custom exceptions
+│   ├── api/                     # REST API endpoints
+│   │   ├── __init__.py
+│   │   └── v1.py                # API v1 endpoints
+│   ├── public/                  # Static assets
+│   │   ├── css/
+│   │   │   └── qonto.css
+│   │   ├── js/
+│   │   │   └── qonto_settings.js
+│   │   └── images/
+│   │       └── qonto-icon.svg
+│   ├── templates/               # Jinja templates
+│   │   └── includes/
+│   │       └── qonto_health_card.html
+│   ├── translations/            # i18n files
+│   │   ├── en.csv
+│   │   └── fr.csv
+│   └── tests/                   # Test suite
+│       ├── __init__.py
+│       ├── conftest.py          # pytest config
+│       ├── test_client.py
+│       ├── test_sync.py
+│       └── test_mapping.py
+└── .github/
+    └── workflows/
+        └── tests.yml            # CI/CD
 ```
 
-## DocTypes
+## 📋 DOCTYPES SPECIFICATION
 
-### Qonto Settings (Single)
+### 1. Qonto Settings (Single DocType)
 
-Fields:
+```json
+{
+  "doctype": "DocType",
+  "name": "Qonto Settings",
+  "module": "Qonto Connector",
+  "issingle": 1,
+  "fields": [
+    {
+      "fieldname": "section_api",
+      "fieldtype": "Section Break",
+      "label": "API Configuration"
+    },
+    {
+      "fieldname": "environment",
+      "fieldtype": "Select",
+      "label": "Environment",
+      "options": "Sandbox\nProduction",
+      "default": "Sandbox",
+      "reqd": 1
+    },
+    {
+      "fieldname": "api_login",
+      "fieldtype": "Data",
+      "label": "API Login",
+      "description": "Qonto organization slug",
+      "reqd": 1
+    },
+    {
+      "fieldname": "api_secret_key",
+      "fieldtype": "Password",
+      "label": "API Secret Key",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_sync",
+      "fieldtype": "Section Break",
+      "label": "Sync Configuration"
+    },
+    {
+      "fieldname": "poll_interval_minutes",
+      "fieldtype": "Int",
+      "label": "Sync Interval (minutes)",
+      "default": 15
+    },
+    {
+      "fieldname": "default_sync_lookback_days",
+      "fieldtype": "Int",
+      "label": "Default Lookback Days",
+      "default": 90
+    },
+    {
+      "fieldname": "section_status",
+      "fieldtype": "Section Break",
+      "label": "Connection Status"
+    },
+    {
+      "fieldname": "connected",
+      "fieldtype": "Check",
+      "label": "Connected",
+      "read_only": 1
+    },
+    {
+      "fieldname": "organization_id",
+      "fieldtype": "Data",
+      "label": "Organization ID",
+      "read_only": 1
+    },
+    {
+      "fieldname": "organization_name",
+      "fieldtype": "Data",
+      "label": "Organization Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_sync_at",
+      "fieldtype": "Datetime",
+      "label": "Last Sync",
+      "read_only": 1
+    },
+    {
+      "fieldname": "last_error",
+      "fieldtype": "Small Text",
+      "label": "Last Error",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_mappings",
+      "fieldtype": "Section Break",
+      "label": "Account Mappings"
+    },
+    {
+      "fieldname": "account_mappings",
+      "fieldtype": "Table",
+      "label": "Account Mappings",
+      "options": "Qonto Account Mapping"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1
+    },
+    {
+      "role": "Qonto Manager",
+      "read": 1,
+      "write": 1
+    }
+  ]
+}
+```
 
-* `environment` (Select: Sandbox, Production; default Sandbox)
-* `client_id` (Password), `client_secret` (Password)
-* `redirect_uri` (Data, default: `https://<your-domain>/api/method/qonto_connector.api.oauth.callback`)
-* `requested_scopes` (Small Text, default: `organization.read transactions`)
-* `poll_interval_minutes` (Int, default 15)
-* `default_sync_lookback_days` (Int, default 90)
-* Status: `connected` (Check, read-only), `last_sync_at` (Datetime, read-only), `last_error` (Small Text)
-  Buttons: **Connect to Qonto**, **Disconnect**, **Run Mapping Wizard**, **Sync Now**, **Test Connection**
+### 2. Qonto Account Mapping (Child DocType)
 
-Permissions: System Manager + new role **Qonto Manager**.
+```json
+{
+  "doctype": "DocType",
+  "name": "Qonto Account Mapping",
+  "module": "Qonto Connector",
+  "istable": 1,
+  "fields": [
+    {
+      "fieldname": "company",
+      "fieldtype": "Link",
+      "label": "Company",
+      "options": "Company",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "qonto_bank_account_id",
+      "fieldtype": "Data",
+      "label": "Qonto Account ID",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "iban",
+      "fieldtype": "Data",
+      "label": "IBAN",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "qonto_name",
+      "fieldtype": "Data",
+      "label": "Qonto Account Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "erpnext_bank_account",
+      "fieldtype": "Link",
+      "label": "ERPNext Bank Account",
+      "options": "Bank Account",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "active",
+      "fieldtype": "Check",
+      "label": "Active",
+      "default": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "last_synced_at",
+      "fieldtype": "Datetime",
+      "label": "Last Synced",
+      "read_only": 1
+    }
+  ]
+}
+```
 
-### Qonto Token (Single)
+### 3. Qonto Sync Log (Standard DocType)
 
-* `access_token` (Password), `refresh_token` (Password), `token_type` (Data)
-* `expires_at` (Datetime)
-* `organization_id` (Data), `member_id` (Data), `scope` (Data)
+```json
+{
+  "doctype": "DocType",
+  "name": "Qonto Sync Log",
+  "module": "Qonto Connector",
+  "fields": [
+    {
+      "fieldname": "run_at",
+      "fieldtype": "Datetime",
+      "label": "Run At",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "level",
+      "fieldtype": "Select",
+      "label": "Level",
+      "options": "INFO\nWARN\nERROR",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "message",
+      "fieldtype": "Small Text",
+      "label": "Message",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "context_json",
+      "fieldtype": "Long Text",
+      "label": "Context"
+    },
+    {
+      "fieldname": "duration_ms",
+      "fieldtype": "Int",
+      "label": "Duration (ms)"
+    },
+    {
+      "fieldname": "items_processed",
+      "fieldtype": "Int",
+      "label": "Items Processed"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "delete": 1
+    },
+    {
+      "role": "Qonto Manager",
+      "read": 1
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC"
+}
+```
 
-### Qonto Account Map (Child Table)
+## 💻 IMPLEMENTATION PATTERNS
 
-* `company` (Link Company) — required
-* `qonto_bank_account_id` (Data) — required
-* `iban` (Data), `qonto_name` (Data)
-* `erpnext_bank_account` (Link Account filtered by `account_type="Bank"` and `company`)
-* `last_synced_at` (Datetime), `active` (Check, default 1)
+### Core Files Implementation
 
-### Qonto Sync Log (DocType)
+#### 1. `__init__.py` (Root)
 
-* `run_at` (Datetime), `level` (Select: INFO/WARN/ERROR)
-* `message` (Small Text), `context_json` (Long Text)
-* `duration_ms` (Int), `items_processed` (Int)
+```python
+__version__ = "1.0.0"
+```
 
-Auto-trim logs older than 90 days or beyond 10k entries.
-
-## Hooks & scheduler
-
-* `scheduler_events` → cron every **15 min**: `qonto_connector.qonto.sync.schedule_all`
-* `after_migrate` → ensure Settings + Token exist, ensure custom field `qonto_id` on **Bank Transaction**.
-* Whitelisted API: `qonto_connector.api.oauth.start`, `qonto_connector.api.oauth.callback`, `qonto_connector.api.admin.sync_now`, `qonto_connector.api.admin.resync`.
-
-## OAuth2 (multi-tenant per site)
-
-* **Start**: generate `state`, build Qonto authorize URL (scopes from settings), store `state` in cache 10 min.
-* **Callback**: validate `state`, exchange `code`→`access_token`/`refresh_token`/`expires_in`, compute `expires_at`, save encrypted; fetch `/v2/organization` to store `organization_id` and seed available accounts for mapping.
-* **Refresh**: before expiry (T-5 min) or on 401; 3 retries with exponential backoff.
-
-## Qonto client
-
-* Switch base URL by environment (Sandbox vs Prod).
-* Methods:
-
-  * `get_organization()`
-  * `list_accounts()` (from org payload)
-  * `iter_transactions(bank_account_id, updated_at_from, page_size)` — yields normalized tx, handles pagination & rate limits.
-  * Optional: `get_transaction(id, include_attachments=False)`
-* Rate-limit handling: backoff on 429/5xx with jitter; respect headers.
-
-## Sync engine
-
-* For each **active** mapping row:
-
-  * Ensure valid token.
-  * Determine `updated_at_from = last_synced_at or now() - default_sync_lookback_days`.
-  * Pull transactions; for each:
-
-    * **Normalize**:
-
-      * Posting date = `settled_at` (fallback `emitted_at`)
-      * Signed amount: `credit` → +; `debit` → −
-      * Description: `"{label} — {reference} — {counterparty_name}"` (skip empties)
-    * **Upsert** **Bank Transaction** (idempotent on `qonto_id` custom field):
-
-      * Fields: date, amount, description, currency from mapped ERPNext Bank Account’s company currency; JSON snapshot in hidden field for traceability.
-  * Update `last_synced_at`, commit per chunk; log summary.
-
-* Admin endpoints:
-
-  * `sync_now()` → enqueue immediate sync for all active mappings.
-  * `resync(from_date, account_id=None)` → backfill safely.
-
-## Webhooks (optional for later)
-
-* Prepare endpoint `/api/method/qonto_connector.webhooks.handle` with secret verification; keep **polling as v1 default**.
-
-## Security
-
-* Secrets in **Password** fields (encrypted).
-* Strict role checks; API endpoints require **System Manager or Qonto Manager** (callback allow_guest).
-* CSRF/state validation, no secrets in logs.
-
-## Docker-friendly bits
-
-* `.env.example` with:
-
-  ```
-  QONTO_CLIENT_ID=
-  QONTO_CLIENT_SECRET=
-  QONTO_ENV=Sandbox
-  ```
-* README section for Docker: mounting app into bench container, running `bench migrate`, and setting `redirect_uri` to the public site URL.
-
-## Tests
-
-* Mock Qonto OAuth and transaction pages.
-* Verify pagination, idempotency (no duplicates), mapping across **multiple Companies** and **multiple Bank Accounts per Company**.
-* GitHub Actions workflow sample running `bench --site test_site` tests.
-
-## Developer ergonomics & docs
-
-* README: install, Docker notes, configuring OAuth app, setting redirect URI, mapping wizard walkthrough, first sync, troubleshooting.
-* Health card in Settings (Connected?, Accounts mapped, Last Sync, Errors).
-* MIT license.
-* App metadata:
-
-  * `app_title = "Qonto Connector"`
-  * `app_publisher = "Itanéo"`
-  * `app_description = "Sync Qonto bank data into ERPNext"`
-  * `app_email = "dev@itaneo.example"` (placeholder)
-  * `app_icon = "octicon octicon-credit-card"`
-  * `app_license = "MIT"`
-
-## Representative code stubs
-
-**hooks.py**
+#### 2. `hooks.py`
 
 ```python
 app_name = "qonto_connector"
 app_title = "Qonto Connector"
 app_publisher = "Itanéo"
-app_description = "Sync Qonto bank data into ERPNext"
-app_email = "dev@itaneo.example"
+app_description = "Sync Qonto bank transactions into ERPNext"
+app_email = "support@itaneo.com"
 app_license = "MIT"
-app_icon = "octicon octicon-credit-card"
-app_color = "blue"
+app_version = "1.0.0"
 
+# Include JS/CSS
+app_include_css = "/assets/qonto_connector/css/qonto.css"
+app_include_js = "/assets/qonto_connector/js/qonto_settings.js"
+
+# Scheduled Tasks
 scheduler_events = {
-    "cron": {"*/15 * * * *": ["qonto_connector.qonto.sync.schedule_all"]}
+    "cron": {
+        "*/15 * * * *": [
+            "qonto_connector.qonto.sync.schedule_all_syncs"
+        ]
+    }
 }
 
-after_migrate = "qonto_connector.qonto.utils.ensure_setup"
+# Migrate hooks
+after_migrate = [
+    "qonto_connector.qonto.utils.ensure_custom_fields",
+    "qonto_connector.qonto.utils.ensure_qonto_manager_role"
+]
+
+# DocType Events
+doc_events = {
+    "Bank Transaction": {
+        "before_insert": "qonto_connector.qonto.utils.prevent_duplicate_qonto_transaction"
+    }
+}
+
+# API Endpoints
+override_whitelisted_methods = {
+    "qonto_connector.api.v1.test_connection": "qonto_connector.api.v1.test_connection",
+    "qonto_connector.api.v1.fetch_accounts": "qonto_connector.api.v1.fetch_accounts",
+    "qonto_connector.api.v1.sync_now": "qonto_connector.api.v1.sync_now",
+    "qonto_connector.api.v1.get_sync_status": "qonto_connector.api.v1.get_sync_status"
+}
 ```
 
-**api/oauth.py**
+#### 3. `qonto/client.py`
 
 ```python
+"""Qonto API Client with retry logic and error handling."""
+import time
+from typing import Dict, Any, Optional, Iterator, List
+from urllib.parse import urljoin
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import frappe
+from frappe.utils import cstr
+from .exceptions import QontoAPIError, QontoAuthError, QontoRateLimitError
+from .constants import QONTO_API_VERSION, ENDPOINTS
+
+
+class QontoClient:
+    """Thread-safe Qonto API client with automatic retry and rate limiting."""
+    
+    def __init__(self, settings: "QontoSettings"):
+        self.settings = settings
+        self.base_url = self._get_base_url()
+        self.session = self._create_session()
+        
+    def _get_base_url(self) -> str:
+        """Get API base URL based on environment."""
+        if self.settings.environment == "Production":
+            return "https://thirdparty.qonto.com/v2/"
+        return "https://thirdparty-sandbox.qonto.com/v2/"
+    
+    def _create_session(self) -> requests.Session:
+        """Create requests session with retry strategy."""
+        session = requests.Session()
+        
+        # Retry strategy
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST", "PUT", "DELETE"]
+        )
+        
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # Set headers
+        session.headers.update({
+            "Authorization": f"{self.settings.api_login}:{self.settings.get_password('api_secret_key')}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": f"ERPNext-Qonto-Connector/{frappe.get_installed_app_version('qonto_connector')}"
+        })
+        
+        return session
+    
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make API request with error handling."""
+        url = urljoin(self.base_url, endpoint)
+        
+        try:
+            response = self.session.request(method, url, **kwargs)
+            
+            if response.status_code == 401:
+                raise QontoAuthError("Invalid API credentials")
+            elif response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 60))
+                raise QontoRateLimitError(f"Rate limit exceeded. Retry after {retry_after}s", retry_after)
+            
+            response.raise_for_status()
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            frappe.log_error(f"Qonto API Error: {str(e)}", "Qonto API")
+            raise QontoAPIError(f"API request failed: {str(e)}")
+    
+    def test_connection(self) -> Dict[str, Any]:
+        """Test API connection and get organization info."""
+        return self._request("GET", "organization")
+    
+    def get_organization(self) -> Dict[str, Any]:
+        """Get organization details including bank accounts."""
+        data = self._request("GET", "organization")
+        return data.get("organization", {})
+    
+    def list_accounts(self) -> List[Dict[str, Any]]:
+        """List all bank accounts."""
+        org = self.get_organization()
+        return org.get("bank_accounts", [])
+    
+    def iter_transactions(
+        self,
+        bank_account_id: str,
+        updated_at_from: Optional[str] = None,
+        status: Optional[List[str]] = None,
+        page_size: int = 100
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Iterate through transactions with automatic pagination.
+        
+        Args:
+            bank_account_id: Qonto bank account ID
+            updated_at_from: ISO datetime to fetch transactions updated after
+            status: List of transaction statuses to filter
+            page_size: Number of transactions per page
+            
+        Yields:
+            Transaction dictionaries
+        """
+        params = {
+            "bank_account_id": bank_account_id,
+            "per_page": page_size,
+            "page": 1
+        }
+        
+        if updated_at_from:
+            params["updated_at_from"] = updated_at_from
+            
+        if status:
+            params["status[]"] = status
+        
+        while True:
+            try:
+                data = self._request("GET", "transactions", params=params)
+                transactions = data.get("transactions", [])
+                
+                if not transactions:
+                    break
+                
+                for transaction in transactions:
+                    yield self._normalize_transaction(transaction)
+                
+                # Check for next page
+                meta = data.get("meta", {})
+                if params["page"] >= meta.get("total_pages", 1):
+                    break
+                    
+                params["page"] += 1
+                
+            except QontoRateLimitError as e:
+                frappe.log_error(f"Rate limit hit: {str(e)}", "Qonto Sync")
+                time.sleep(e.retry_after)
+                continue
+    
+    def _normalize_transaction(self, tx: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize transaction data for ERPNext."""
+        # Determine posting date
+        posting_date = tx.get("settled_at") or tx.get("emitted_at")
+        
+        # Calculate signed amount
+        amount = float(tx.get("amount", 0))
+        if tx.get("side") == "debit":
+            amount = -amount
+        
+        # Build description
+        parts = []
+        if tx.get("label"):
+            parts.append(tx["label"])
+        if tx.get("reference"):
+            parts.append(tx["reference"])
+        if tx.get("counterparty_name"):
+            parts.append(tx["counterparty_name"])
+        
+        description = " — ".join(parts) or "Qonto Transaction"
+        
+        return {
+            "qonto_id": tx["id"],
+            "posting_date": posting_date,
+            "amount": amount,
+            "currency": tx.get("currency", "EUR"),
+            "description": description,
+            "status": tx.get("status"),
+            "side": tx.get("side"),
+            "operation_type": tx.get("operation_type"),
+            "attachment_ids": tx.get("attachment_ids", []),
+            "raw_data": tx  # Keep original for reference
+        }
+```
+
+#### 4. `qonto/sync.py`
+
+```python
+"""Transaction sync engine."""
+import frappe
+from frappe.utils import now_datetime, get_datetime, add_days
+from typing import Optional, List, Dict, Any
+from .client import QontoClient
+from .mapping import upsert_bank_transaction
+from .utils import log_sync
+from .exceptions import QontoSyncError
+
+
+def schedule_all_syncs():
+    """Scheduled task to sync all active account mappings."""
+    try:
+        settings = frappe.get_single("Qonto Settings")
+        
+        if not settings.connected:
+            log_sync("WARN", "Qonto not connected. Skipping sync.")
+            return
+        
+        # Check if sync is already running
+        if frappe.cache().get_value("qonto_sync_running"):
+            log_sync("INFO", "Sync already in progress. Skipping.")
+            return
+        
+        # Set sync lock
+        frappe.cache().set_value("qonto_sync_running", True, expires_in_sec=900)  # 15 min timeout
+        
+        try:
+            sync_all_accounts(settings)
+        finally:
+            frappe.cache().delete_value("qonto_sync_running")
+            
+    except Exception as e:
+        log_sync("ERROR", f"Sync scheduler error: {str(e)}", {"error": str(e)})
+        raise
+
+
+def sync_all_accounts(settings: "QontoSettings"):
+    """Sync all active account mappings."""
+    client = QontoClient(settings)
+    
+    active_mappings = [m for m in settings.account_mappings if m.active]
+    
+    if not active_mappings:
+        log_sync("INFO", "No active account mappings found.")
+        return
+    
+    total_synced = 0
+    errors = []
+    
+    for mapping in active_mappings:
+        try:
+            count = sync_account(client, mapping, settings.default_sync_lookback_days)
+            total_synced += count
+            
+            # Update mapping
+            mapping.last_synced_at = now_datetime()
+            mapping.save(ignore_permissions=True)
+            
+        except Exception as e:
+            error_msg = f"Error syncing {mapping.qonto_bank_account_id}: {str(e)}"
+            errors.append(error_msg)
+            log_sync("ERROR", error_msg, {"account_id": mapping.qonto_bank_account_id})
+    
+    # Update settings
+    settings.last_sync_at = now_datetime()
+    if errors:
+        settings.last_error = "\\n".join(errors[-5:])  # Keep last 5 errors
+    else:
+        settings.last_error = None
+    
+    settings.save(ignore_permissions=True)
+    frappe.db.commit()
+    
+    log_sync(
+        "INFO",
+        f"Sync completed. {total_synced} transactions synced.",
+        {"total": total_synced, "errors": len(errors)}
+    )
+
+
+def sync_account(
+    client: QontoClient,
+    mapping: "QontoAccountMapping",
+    default_lookback_days: int
+) -> int:
+    """Sync transactions for a single account mapping."""
+    # Determine sync start date
+    if mapping.last_synced_at:
+        sync_from = get_datetime(mapping.last_synced_at).isoformat()
+    else:
+        sync_from = add_days(now_datetime(), -default_lookback_days).isoformat()
+    
+    count = 0
+    
+    # Fetch and process transactions
+    for tx_data in client.iter_transactions(
+        mapping.qonto_bank_account_id,
+        updated_at_from=sync_from,
+        status=["settled"]  # Only sync settled transactions
+    ):
+        try:
+            upsert_bank_transaction(mapping, tx_data)
+            count += 1
+            
+            # Commit every 50 transactions
+            if count % 50 == 0:
+                frappe.db.commit()
+                
+        except Exception as e:
+            log_sync(
+                "ERROR",
+                f"Error processing transaction {tx_data.get('qonto_id')}: {str(e)}",
+                {"transaction": tx_data}
+            )
+            # Continue with next transaction
+    
+    frappe.db.commit()
+    return count
+```
+
+#### 5. `qonto/mapping.py`
+
+```python
+"""Account mapping and transaction creation logic."""
+import json
+import frappe
+from frappe.utils import flt
+from typing import Dict, Any
+
+
+def upsert_bank_transaction(mapping: "QontoAccountMapping", tx_data: Dict[str, Any]):
+    """Create or update bank transaction from Qonto data."""
+    qonto_id = tx_data["qonto_id"]
+    
+    # Check if transaction already exists
+    existing = frappe.db.get_value(
+        "Bank Transaction",
+        {"qonto_id": qonto_id},
+        ["name", "docstatus"],
+        as_dict=True
+    )
+    
+    if existing:
+        # Skip if already submitted
+        if existing.docstatus == 1:
+            return
+        
+        # Update existing draft
+        doc = frappe.get_doc("Bank Transaction", existing.name)
+    else:
+        # Create new
+        doc = frappe.new_doc("Bank Transaction")
+        doc.qonto_id = qonto_id
+    
+    # Get bank account details
+    bank_account = frappe.get_doc("Bank Account", mapping.erpnext_bank_account)
+    
+    # Update fields
+    doc.update({
+        "date": tx_data["posting_date"],
+        "bank_account": mapping.erpnext_bank_account,
+        "company": mapping.company,
+        "description": tx_data["description"],
+        "currency": bank_account.account_currency or tx_data["currency"],
+        "qonto_data": json.dumps(tx_data["raw_data"], indent=2)
+    })
+    
+    # Set debit or credit based on amount
+    amount = abs(flt(tx_data["amount"]))
+    if tx_data["amount"] < 0:
+        doc.withdrawal = amount
+        doc.deposit = 0
+    else:
+        doc.deposit = amount
+        doc.withdrawal = 0
+    
+    # Save
+    doc.save(ignore_permissions=True)
+    
+    # Auto-submit if configured (future feature)
+    # if settings.auto_submit_transactions:
+    #     doc.submit()
+```
+
+#### 6. `api/v1.py`
+
+```python
+"""REST API endpoints for Qonto Connector."""
+import frappe
+from frappe import _
+from frappe.utils import now_datetime
+from qonto_connector.qonto.client import QontoClient
+from qonto_connector.qonto.sync import sync_all_accounts
+from qonto_connector.qonto.utils import log_sync
+
 
 @frappe.whitelist()
-def start():
-    from qonto_connector.qonto.oauth import start_oauth
-    return start_oauth()
-
-@frappe.whitelist(allow_guest=True)
-def callback(code: str=None, state: str=None):
-    from qonto_connector.qonto.oauth import handle_callback
-    handle_callback(code, state)
-    return "Qonto connection successful. You can close this window."
-```
-
-**qonto/sync.py**
-
-```python
-import datetime as dt
-import frappe
-from .client import QontoClient
-from .mapping import get_active_mappings, upsert_bank_transaction
-from .utils import utcnow
-
-def schedule_all():
+def test_connection():
+    """Test Qonto API connection."""
+    frappe.only_for("System Manager", "Qonto Manager")
+    
+    try:
     settings = frappe.get_single("Qonto Settings")
     client = QontoClient(settings)
-    for m in get_active_mappings():
-        updated_from = m.last_synced_at or (utcnow() - dt.timedelta(days=settings.default_sync_lookback_days))
-        total = 0
-        for tx in client.iter_transactions(m.qonto_bank_account_id, updated_from):
-            upsert_bank_transaction(m, tx)
-            total += 1
-        m.last_synced_at = utcnow()
-        m.save(ignore_permissions=True)
-        frappe.db.commit()
-        frappe.logger().info({"msg":"qonto sync done","account":m.qonto_bank_account_id,"count":total})
+        
+        # Test connection and get organization info
+    org_data = client.get_organization()
+        
+        # Update settings
+        settings.organization_id = org_data.get("id")
+        settings.organization_name = org_data.get("name")
+    settings.connected = True
+        settings.last_error = None
+        settings.save(ignore_permissions=True)
+        
+        return {
+            "success": True,
+            "message": _("Connection successful!"),
+            "organization": {
+                "id": org_data.get("id"),
+                "name": org_data.get("name"),
+                "bank_accounts": len(org_data.get("bank_accounts", []))
+            }
+        }
+        
+    except Exception as e:
+        settings = frappe.get_single("Qonto Settings")
+        settings.connected = False
+        settings.last_error = str(e)
+    settings.save(ignore_permissions=True)
+        
+        frappe.log_error(f"Qonto connection test failed: {str(e)}", "Qonto Connection")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
+@frappe.whitelist()
+def fetch_accounts():
+    """Fetch available Qonto bank accounts."""
+    frappe.only_for("System Manager", "Qonto Manager")
+    
+    try:
+    settings = frappe.get_single("Qonto Settings")
+        
+        if not settings.connected:
+            return {
+                "success": False,
+                "message": _("Please test connection first")
+            }
+        
+    client = QontoClient(settings)
+    accounts = client.list_accounts()
+        
+        # Format for frontend
+        formatted_accounts = []
+        for acc in accounts:
+            formatted_accounts.append({
+                "id": acc.get("id"),
+                "name": acc.get("name"),
+                "iban": acc.get("iban"),
+                "bic": acc.get("bic"),
+                "currency": acc.get("currency"),
+                "balance": acc.get("balance"),
+                "status": acc.get("status")
+            })
+        
+        return {
+            "success": True,
+            "accounts": formatted_accounts
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Failed to fetch Qonto accounts: {str(e)}", "Qonto Fetch")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+
+@frappe.whitelist()
+def sync_now():
+    """Trigger immediate sync."""
+    frappe.only_for("System Manager", "Qonto Manager")
+    
+    # Check if sync is already running
+    if frappe.cache().get_value("qonto_sync_running"):
+        return {
+            "success": False,
+            "message": _("Sync is already in progress")
+        }
+    
+    # Enqueue sync job
+    frappe.enqueue(
+        "qonto_connector.qonto.sync.schedule_all_syncs",
+        queue="long",
+        timeout=900,
+        job_name="qonto_sync_manual"
+    )
+    
+    log_sync("INFO", "Manual sync triggered")
+    
+    return {
+        "success": True,
+        "message": _("Sync has been queued and will start shortly")
+    }
+
+
+@frappe.whitelist()
+def get_sync_status():
+    """Get current sync status."""
+    frappe.only_for("System Manager", "Qonto Manager")
+    
+    settings = frappe.get_single("Qonto Settings")
+    is_running = bool(frappe.cache().get_value("qonto_sync_running"))
+    
+    # Get recent logs
+    logs = frappe.get_all(
+        "Qonto Sync Log",
+        fields=["run_at", "level", "message", "items_processed"],
+        order_by="creation desc",
+        limit=10
+    )
+    
+    return {
+        "connected": settings.connected,
+        "is_running": is_running,
+        "last_sync": settings.last_sync_at,
+        "last_error": settings.last_error,
+        "recent_logs": logs
+    }
 ```
 
-**README install snippet**
+## 🔒 SECURITY & BEST PRACTICES
 
-```bash
-bench get-app qonto_connector <your-git-url>
-bench --site <site> install-app qonto_connector
-# In ERPNext: open Qonto Settings → set Client ID/Secret → Connect to Qonto → Map accounts → Sync Now
-```
+### DO's
 
-**Acceptance criteria**
+1. **Always use Frappe's Password field** for API keys
+2. **Use frappe.only_for()** for permission checks
+3. **Log errors with frappe.log_error()** for debugging
+4. **Use frappe.db.commit()** after bulk operations
+5. **Implement proper retry logic** with exponential backoff
+6. **Validate all inputs** before processing
+7. **Use type hints** for better code clarity
+8. **Follow Frappe's coding standards**
 
-* Works on **ERPNext v15** under **Docker**.
-* One site → multiple Companies; each Company → multiple mapped Qonto bank accounts.
-* OAuth connect + token refresh OK.
-* Transactions import idempotently across runs; appear in **Bank Reconciliation**.
-* Logs & health card visible; manual “Sync Now” works.
+### DON'T's
 
-**Generate all files, doctypes, and tests as above with these defaults baked in.** Keep code clean, typed, and lint-passing. Use placeholders where secrets/domains are needed.
+1. **Never log sensitive data** (API keys, passwords)
+2. **Don't hardcode credentials** anywhere
+3. **Avoid synchronous long-running operations** in web requests
+4. **Don't create duplicate transactions**
+5. **Never bypass Frappe's permission system**
+6. **Don't ignore rate limits**
+
+## 🧪 TESTING REQUIREMENTS
+
+### Unit Tests
+
+- Mock all external API calls
+- Test idempotency of sync operations
+- Verify multi-company isolation
+- Test error handling and retries
+- Validate transaction normalization
+
+### Integration Tests
+
+- Test with sandbox environment
+- Verify DocType creation
+- Test permission boundaries
+- Validate scheduled tasks
+
+## 📦 DEPLOYMENT CHECKLIST
+
+1. **pyproject.toml** with proper metadata
+2. **requirements.txt** with pinned versions:
+
+   ```text
+   requests>=2.28.0,<3.0.0
+   ```
+3. **Docker support** via .env.example
+4. **GitHub Actions** workflow for CI
+5. **Comprehensive README** with:
+   - Installation steps
+   - API key setup guide
+   - Configuration walkthrough
+   - Troubleshooting section
+6. **MIT LICENSE** file
+
+## 🎯 ACCEPTANCE CRITERIA
+
+✅ **Functionality:**
+
+- Works on ERPNext v15 with Docker
+- API Key authentication functional
+- Multi-company/multi-account support
+- Idempotent transaction sync
+- No duplicate transactions
+- Proper error handling
+
+✅ **Code Quality:**
+
+- Type hints throughout
+- Proper docstrings
+- Follows Frappe patterns
+- Comprehensive logging
+- Clean error messages
+
+✅ **User Experience:**
+
+- Clear setup wizard
+- Intuitive account mapping
+- Visible sync status
+- Helpful error messages
+- Working "Test Connection" button
+
+✅ **Performance:**
+
+- Handles rate limits gracefully
+- Efficient pagination
+- Bulk operations where possible
+- Proper database indexing
+
+## 🚀 QUICK START IMPLEMENTATION
+
+When implementing, start with these files in order:
+1. `setup.py` and `pyproject.toml`
+2. `hooks.py`
+3. DocType JSON files
+4. `qonto/client.py`
+5. `qonto/sync.py` and `qonto/mapping.py`
+6. `api/v1.py`
+7. Frontend JS files
+8. Tests
+9. Documentation
+
+Remember: This is a production system handling financial data. Prioritize reliability, security, and data integrity over features.

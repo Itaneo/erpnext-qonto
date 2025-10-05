@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "creation": "2025-10-04 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "qonto_bank_account_id",
+  "iban",
+  "qonto_name",
+  "erpnext_bank_account",
+  "active",
+  "last_synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "qonto_bank_account_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Qonto Account ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "iban",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IBAN",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qonto_name",
+   "fieldtype": "Data",
+   "label": "Qonto Account Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erpnext_bank_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "ERPNext Bank Account",
+   "options": "Bank Account",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "last_synced_at",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-10-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Qonto Connector",
+ "name": "Qonto Account Mapping",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+

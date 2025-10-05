@@ -1,0 +1,19 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include qonto_connector *.css
+recursive-include qonto_connector *.csv
+recursive-include qonto_connector *.html
+recursive-include qonto_connector *.ico
+recursive-include qonto_connector *.js
+recursive-include qonto_connector *.json
+recursive-include qonto_connector *.md
+recursive-include qonto_connector *.png
+recursive-include qonto_connector *.py
+recursive-include qonto_connector *.svg
+recursive-include qonto_connector *.txt
+recursive-exclude qonto_connector *.pyc
+
