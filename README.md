@@ -27,6 +27,7 @@
 - [Configuration](#-configuration)
 - [Usage](#-usage)
 - [API Endpoints](#-api-endpoints)
+- [Deployment](#-deployment)
 - [Development](#-development)
 - [Testing](#-testing)
 - [Troubleshooting](#-troubleshooting)
@@ -84,22 +85,66 @@ bench --site your-site-name migrate
 bench restart
 ```
 
-### Method 3: Docker Installation
+### Method 3: Docker Installation (Production)
 
-If you're using the official Frappe Docker setup:
+This project uses the **official frappe_docker `pwd.yml`** configuration for production deployments.
 
-```bash
-# Add to your apps.json
-{
-  "qonto_connector": {
-    "url": "https://github.com/itaneo/qonto-connector.git",
+**Prerequisites:**
+1. Clone frappe_docker: `git clone https://github.com/frappe/frappe_docker D:\ErpNext\frappe_docker`
+2. Docker and Docker Compose installed
+
+**Production Deployment:**
+
+Use the official frappe_docker pwd.yml file:
+
+```powershell
+# Navigate to frappe_docker directory
+cd D:\ErpNext\frappe_docker
+
+# Deploy with pwd.yml
+docker compose -f pwd.yml up -d
+
+# Wait for services to be ready
+docker compose -f pwd.yml logs -f create-site
+
+# Install qonto_connector app
+docker compose -f pwd.yml exec backend bash
+cd /home/frappe/frappe-bench
+
+# Option 1: Install from git (recommended)
+bench get-app https://github.com/YOUR-USERNAME/qonto_connector
+bench --site frontend install-app qonto_connector
+
+# Option 2: Install from local directory (development)
+# First, copy your app to the container
+exit
+docker cp D:\ErpNext\erpnext-qonto backend:/home/frappe/frappe-bench/apps/qonto_connector
+docker compose -f pwd.yml exec backend bash
+bench --site frontend install-app qonto_connector
+```
+
+**Configuration Notes:**
+- The `pwd.yml` file is maintained by the frappe_docker project
+- Default credentials: admin/admin
+- Default database password: admin
+- Site name: frontend
+- Accessible at: http://localhost:8080
+
+**For private repositories**, create an `apps.json` file:
+```json
+[
+  {
+    "url": "https://{{PAT}}@github.com/YOUR-ORG/qonto_connector.git",
     "branch": "main"
   }
-}
-
-# Rebuild your containers
-docker-compose up -d --build
+]
 ```
+
+**Benefits of this approach:**
+- ✅ **Production-tested configuration** - Uses official frappe_docker setup
+- ✅ **No custom image building** - Uses official images directly
+- ✅ **Community-maintained** - Updated with Frappe releases
+- ✅ **Standardized deployment** - Consistent with Frappe best practices
 
 ## ⚙️ Configuration
 
@@ -193,6 +238,31 @@ The connector creates **draft** Bank Transaction records. You can:
 1. Review and verify transactions
 2. Match with payment entries
 3. Submit transactions after reconciliation
+
+## 🚢 Deployment
+
+For detailed deployment instructions and production best practices, see **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+### Quick Deployment Options
+
+**Production (Recommended):**
+```bash
+# Use official frappe_docker pwd.yml configuration
+cd D:\ErpNext\frappe_docker
+docker compose -f pwd.yml up -d
+```
+
+**Development:**
+```powershell
+# Use PowerShell scripts for local setup
+.\tools\setup-erpnext-docker.ps1
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for:
+- Using frappe_docker pwd.yml for production
+- Backup and restore procedures
+- Production best practices
+- Complete troubleshooting guide
 
 ## 🔌 API Endpoints
 

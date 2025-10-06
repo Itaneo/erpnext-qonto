@@ -1,56 +1,49 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Sets up ERPNext v15 Docker container with mounted volumes to D:\ErpNext
-
+    Sets up ERPNext v15 Docker environment using official frappe_docker
 .DESCRIPTION
-    This script creates the necessary directory structure and Docker Compose
-    configuration to run ERPNext v15 with persistent data on D:\ErpNext.
-    
-    It includes:
-    - MariaDB database
-    - Redis cache and queue
-    - ERPNext frontend and backend
-    - Scheduler and workers
-    - Socketio for real-time features
-
+    Configures and starts ERPNext v15 using frappe_docker with support for:
+    - Development mode: VSCode devcontainer with local app mounting
+    - Production mode: Uses frappe_docker/pwd.yml configuration
+.PARAMETER Mode
+    Deployment mode: 'development' or 'production' (default: development)
 .PARAMETER SiteName
-    The ERPNext site name (default: erpnext.local)
-
+    Site name (default: development.localhost for dev, frontend for prod)
 .PARAMETER AdminPassword
-    The Administrator password (default: admin)
-
-.PARAMETER MariaDBRootPassword
-    The MariaDB root password (default: erpnext123)
-
+    Admin password (default: admin)
+.PARAMETER DBPassword
+    Database root password (default: admin for pwd.yml compatibility)
+.PARAMETER FrappeDockerPath
+    Path to frappe_docker repo (default: D:\ErpNext\frappe_docker)
 .PARAMETER Pull
-    Pull latest Docker images before starting
-
+    Pull latest images before starting
 .PARAMETER Recreate
-    Recreate containers even if configuration hasn't changed
-
+    Recreate containers
 .EXAMPLE
     .\setup-erpnext-docker.ps1
-    
+    # Sets up development environment with VSCode devcontainer
 .EXAMPLE
-    .\setup-erpnext-docker.ps1 -SiteName "mysite.local" -AdminPassword "SecurePass123" -Pull
-
-.NOTES
-    Author: Itanéo
-    Version: 1.0.0
-    Requires: Docker Desktop for Windows
+    .\setup-erpnext-docker.ps1 -Mode production
+    # Sets up production environment using frappe_docker/pwd.yml
 #>
 
-[CmdletBinding()]
 param(
     [Parameter(Mandatory=$false)]
-    [string]$SiteName = "erpnext.local",
+    [ValidateSet("development", "production")]
+    [string]$Mode = "development",
     
     [Parameter(Mandatory=$false)]
-    [SecureString]$AdminPassword,
+    [string]$SiteName = "",
     
     [Parameter(Mandatory=$false)]
-    [SecureString]$MariaDBRootPassword,
+    [string]$AdminPassword = "admin",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$DBPassword = "admin",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$FrappeDockerPath = "..\..\frappe_docker",
     
     [Parameter(Mandatory=$false)]
     [switch]$Pull,
@@ -59,503 +52,259 @@ param(
     [switch]$Recreate
 )
 
-# Error handling
 $ErrorActionPreference = "Stop"
-Set-StrictMode -Version Latest
 
-# Configuration
-$BaseDir = "D:\ErpNext"
+# Paths
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$DockerComposeFile = Join-Path $ProjectRoot "docker-compose.yml"
-$EnvFile = Join-Path $ProjectRoot ".env"
+$QontoAppPath = Join-Path $ProjectRoot "qonto_connector"
 
-# Convert SecureStrings to plain text for configuration
-if (-not $AdminPassword) {
-    $AdminPasswordPlain = "admin"
-} else {
-    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($AdminPassword)
-    $AdminPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+# Set default site name based on mode
+if (-not $SiteName) {
+    $SiteName = if ($Mode -eq "development") { "development.localhost" } else { "frontend" }
 }
-
-if (-not $MariaDBRootPassword) {
-    $MariaDBRootPasswordPlain = "erpnext123"
-} else {
-    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($MariaDBRootPassword)
-    $MariaDBRootPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
-}
-
-# Colors for output
-function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
-function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
-function Write-Warning { param($Message) Write-Host $Message -ForegroundColor Yellow }
-function Write-Error-Custom { param($Message) Write-Host $Message -ForegroundColor Red }
 
 # Banner
-Write-Host "`n==================================================" -ForegroundColor Magenta
-Write-Host "   ERPNext v15 Docker Setup Script" -ForegroundColor Magenta
-Write-Host "   Qonto Connector Development Environment" -ForegroundColor Magenta
-Write-Host "==================================================" -ForegroundColor Magenta
+Write-Host "`n===========================================================" -ForegroundColor Cyan
+Write-Host " ERPNext v15 + Qonto Connector Setup ($Mode mode)" -ForegroundColor Cyan
+Write-Host "===========================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if Docker is running
-Write-Info "Checking Docker status..."
-try {
-    $null = docker info 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Docker is not running"
-    }
-    Write-Success "✓ Docker is running"
-} catch {
-    Write-Error-Custom "✗ Docker is not running. Please start Docker Desktop and try again."
+# Check Docker
+Write-Host "Checking prerequisites..." -ForegroundColor Yellow
+if (!(docker info 2>$null)) {
+    Write-Host "✗ Docker not running. Start Docker Desktop first." -ForegroundColor Red
     exit 1
 }
+Write-Host "✓ Docker is running" -ForegroundColor Green
 
-# Create directory structure
-Write-Info "`nCreating directory structure at $BaseDir..."
-$directories = @(
-    "$BaseDir\sites",
-    "$BaseDir\logs",
-    "$BaseDir\apps",
-    "$BaseDir\mariadb",
-    "$BaseDir\redis-cache",
-    "$BaseDir\redis-queue",
-    "$BaseDir\redis-socketio"
-)
-
-foreach ($dir in $directories) {
-    if (!(Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        Write-Success "  ✓ Created: $dir"
-    } else {
-        Write-Info "  ℹ Already exists: $dir"
-    }
-}
-
-# Create .env file
-Write-Info "`nCreating .env file..."
-$envContent = @"
-# ERPNext Configuration
-ERPNEXT_VERSION=v15
-FRAPPE_VERSION=version-15
-SITE_NAME=$SiteName
-ADMIN_PASSWORD=$AdminPasswordPlain
-
-# Database Configuration
-DB_ROOT_PASSWORD=$MariaDBRootPasswordPlain
-DB_HOST=mariadb
-DB_PORT=3306
-
-# Redis Configuration
-REDIS_CACHE_HOST=redis-cache
-REDIS_QUEUE_HOST=redis-queue
-REDIS_SOCKETIO_HOST=redis-socketio
-
-# Volume Paths
-SITES_DIR=$BaseDir\sites
-LOGS_DIR=$BaseDir\logs
-APPS_DIR=$BaseDir\apps
-MARIADB_DIR=$BaseDir\mariadb
-QONTO_CONNECTOR_DIR=$ProjectRoot
-
-# Network Configuration
-BACKEND_PORT=8000
-FRONTEND_PORT=8080
-SOCKETIO_PORT=9000
-"@
-
-Set-Content -Path $EnvFile -Value $envContent -Force
-Write-Success "✓ .env file created"
-
-# Create docker-compose.yml
-Write-Info "`nCreating docker-compose.yml..."
-$dockerComposeContent = @"
-services:
-  # MariaDB Database
-  mariadb:
-    image: mariadb:10.6
-    container_name: erpnext-mariadb
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: `${DB_ROOT_PASSWORD}
-    volumes:
-      - mariadb-data:/var/lib/mysql
-      - type: bind
-        source: `${MARIADB_DIR}
-        target: /var/lib/mysql/backup
-    networks:
-      - erpnext-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p`${DB_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis Cache
-  redis-cache:
-    image: redis:7-alpine
-    container_name: erpnext-redis-cache
-    restart: unless-stopped
-    volumes:
-      - redis-cache-data:/data
-    networks:
-      - erpnext-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis Queue
-  redis-queue:
-    image: redis:7-alpine
-    container_name: erpnext-redis-queue
-    restart: unless-stopped
-    volumes:
-      - redis-queue-data:/data
-    networks:
-      - erpnext-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Redis Socketio
-  redis-socketio:
-    image: redis:7-alpine
-    container_name: erpnext-redis-socketio
-    restart: unless-stopped
-    volumes:
-      - redis-socketio-data:/data
-    networks:
-      - erpnext-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ERPNext Backend
-  backend:
-    image: frappe/erpnext:v15
-    container_name: erpnext-backend
-    restart: unless-stopped
-    depends_on:
-      mariadb:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-      redis-queue:
-        condition: service_healthy
-    environment:
-      DB_HOST: `${DB_HOST}
-      DB_PORT: `${DB_PORT}
-      REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
-      REDIS_QUEUE: `${REDIS_QUEUE_HOST}:6379
-      REDIS_SOCKETIO: `${REDIS_SOCKETIO_HOST}:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-      - type: bind
-        source: `${LOGS_DIR}
-        target: /home/frappe/frappe-bench/logs
-      - type: bind
-        source: `${QONTO_CONNECTOR_DIR}
-        target: /home/frappe/frappe-bench/apps/qonto_connector
-    networks:
-      - erpnext-network
-    ports:
-      - "`${BACKEND_PORT}:8000"
-    working_dir: /home/frappe/frappe-bench/sites
-    command: >
-      bash -c "
-        cd /home/frappe/frappe-bench/sites;
-        if [ ! -d `${SITE_NAME} ]; then
-          echo 'Creating new site: `${SITE_NAME}';
-          bench new-site `${SITE_NAME} --db-root-password `${DB_ROOT_PASSWORD} --admin-password `${ADMIN_PASSWORD} --no-mariadb-socket;
-          bench --site `${SITE_NAME} install-app erpnext;
-          echo 'Installing Qonto Connector app';
-          cd /home/frappe/frappe-bench;
-          echo 'Installing Python dependencies...';
-          pip3 install -q -e /home/frappe/frappe-bench/apps/qonto_connector;
-          echo 'Adding app to apps.txt...';
-          if ! grep -q 'qonto_connector' sites/apps.txt; then
-            echo 'qonto_connector' >> sites/apps.txt;
-          fi;
-          echo 'Installing app on site...';
-          bench --site `${SITE_NAME} install-app qonto_connector --force;
-          bench --site `${SITE_NAME} set-config developer_mode 1;
-          bench --site `${SITE_NAME} clear-cache;
-        fi;
-        cd /home/frappe/frappe-bench;
-        bench serve --port 8000
-      "
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8000 > /dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-
-  # ERPNext Frontend (Nginx)
-  frontend:
-    image: frappe/erpnext:v15
-    container_name: erpnext-frontend
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      BACKEND: backend:8000
-      SOCKETIO: socketio:9000
-      SITE_NAME: `${SITE_NAME}
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-    networks:
-      - erpnext-network
-    ports:
-      - "`${FRONTEND_PORT}:8080"
-    working_dir: /home/frappe/frappe-bench
-    command: ["nginx-entrypoint.sh"]
-
-  # Socketio for real-time features
-  socketio:
-    image: frappe/erpnext:v15
-    container_name: erpnext-socketio
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis-socketio:
-        condition: service_healthy
-    environment:
-      REDIS_SOCKETIO: redis-socketio:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-    networks:
-      - erpnext-network
-    ports:
-      - "`${SOCKETIO_PORT}:9000"
-    working_dir: /home/frappe/frappe-bench
-    command: ["node", "apps/frappe/socketio.js"]
-
-  # Queue Workers
-  queue-default:
-    image: frappe/erpnext:v15
-    container_name: erpnext-queue-default
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-      redis-queue:
-        condition: service_healthy
-    environment:
-      DB_HOST: `${DB_HOST}
-      REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
-      REDIS_QUEUE: `${REDIS_QUEUE_HOST}:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-      - type: bind
-        source: `${QONTO_CONNECTOR_DIR}
-        target: /home/frappe/frappe-bench/apps/qonto_connector
-    networks:
-      - erpnext-network
-    working_dir: /home/frappe/frappe-bench
-    command: ["bench", "worker", "--queue", "default"]
-
-  queue-short:
-    image: frappe/erpnext:v15
-    container_name: erpnext-queue-short
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-      redis-queue:
-        condition: service_healthy
-    environment:
-      DB_HOST: `${DB_HOST}
-      REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
-      REDIS_QUEUE: `${REDIS_QUEUE_HOST}:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-      - type: bind
-        source: `${QONTO_CONNECTOR_DIR}
-        target: /home/frappe/frappe-bench/apps/qonto_connector
-    networks:
-      - erpnext-network
-    working_dir: /home/frappe/frappe-bench
-    command: ["bench", "worker", "--queue", "short"]
-
-  queue-long:
-    image: frappe/erpnext:v15
-    container_name: erpnext-queue-long
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-      redis-queue:
-        condition: service_healthy
-    environment:
-      DB_HOST: `${DB_HOST}
-      REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
-      REDIS_QUEUE: `${REDIS_QUEUE_HOST}:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-      - type: bind
-        source: `${QONTO_CONNECTOR_DIR}
-        target: /home/frappe/frappe-bench/apps/qonto_connector
-    networks:
-      - erpnext-network
-    working_dir: /home/frappe/frappe-bench
-    command: ["bench", "worker", "--queue", "long"]
-
-  # Scheduler
-  scheduler:
-    image: frappe/erpnext:v15
-    container_name: erpnext-scheduler
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      redis-cache:
-        condition: service_healthy
-      redis-queue:
-        condition: service_healthy
-    environment:
-      DB_HOST: `${DB_HOST}
-      REDIS_CACHE: `${REDIS_CACHE_HOST}:6379
-      REDIS_QUEUE: `${REDIS_QUEUE_HOST}:6379
-    volumes:
-      - type: bind
-        source: `${SITES_DIR}
-        target: /home/frappe/frappe-bench/sites
-      - type: bind
-        source: `${QONTO_CONNECTOR_DIR}
-        target: /home/frappe/frappe-bench/apps/qonto_connector
-    networks:
-      - erpnext-network
-    working_dir: /home/frappe/frappe-bench
-    command: ["bench", "schedule"]
-
-networks:
-  erpnext-network:
-    driver: bridge
-
-volumes:
-  mariadb-data:
-  redis-cache-data:
-  redis-queue-data:
-  redis-socketio-data:
-"@
-
-Set-Content -Path $DockerComposeFile -Value $dockerComposeContent -Force
-Write-Success "✓ docker-compose.yml created"
-
-# Pull images if requested
-if ($Pull) {
-    Write-Info "`nPulling Docker images..."
-    docker compose -f $DockerComposeFile pull
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "✓ Images pulled successfully"
-    } else {
-        Write-Warning "⚠ Some images may not have been pulled"
-    }
-}
-
-# Start containers
-Write-Info "`nStarting ERPNext containers..."
-$composeArgs = @("-f", $DockerComposeFile, "up", "-d")
-if ($Recreate) {
-    $composeArgs += "--force-recreate"
-}
-
-docker compose @composeArgs
-
-if ($LASTEXITCODE -eq 0) {
-    Write-Success "`n✓ ERPNext containers started successfully!"
-} else {
-    Write-Error-Custom "`n✗ Failed to start containers"
+# Check frappe_docker exists
+if (!(Test-Path $FrappeDockerPath)) {
+    Write-Host "✗ frappe_docker not found at: $FrappeDockerPath" -ForegroundColor Red
+    Write-Host "  Clone it with: git clone https://github.com/itaneo/frappe_docker $FrappeDockerPath" -ForegroundColor Yellow
     exit 1
 }
+Write-Host "✓ frappe_docker found" -ForegroundColor Green
 
-# Wait for services to be ready
-Write-Info "`nWaiting for services to be ready (this may take a few minutes)..."
-$maxAttempts = 60
-$attempt = 0
-$ready = $false
-$frontendPort = 8080
+# Check Qonto app exists
+if (!(Test-Path $QontoAppPath)) {
+    Write-Host "✗ Qonto Connector app not found at: $QontoAppPath" -ForegroundColor Red
+    exit 1
+}
+Write-Host "✓ Qonto Connector app found" -ForegroundColor Green
 
-while ($attempt -lt $maxAttempts -and -not $ready) {
-    $attempt++
-    Start-Sleep -Seconds 5
+if ($Mode -eq "development") {
+    Write-Host "`n--- Setting up DEVELOPMENT environment ---" -ForegroundColor Cyan
     
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$frontendPort" -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            $ready = $true
-        }
-    } catch {
-        Write-Host "." -NoNewline
+    # Check if .devcontainer exists
+    $DevContainerPath = Join-Path $FrappeDockerPath ".devcontainer"
+    if (!(Test-Path $DevContainerPath)) {
+        Write-Host "Creating devcontainer configuration..." -ForegroundColor Yellow
+        Copy-Item -Path (Join-Path $FrappeDockerPath "devcontainer-example") -Destination $DevContainerPath -Recurse
+        Write-Host "✓ Devcontainer created" -ForegroundColor Green
     }
-}
-
-Write-Host ""
-
-if ($ready) {
-    Write-Success "✓ ERPNext is ready!"
+    
+    # Create development directory
+    $DevelopmentPath = Join-Path $FrappeDockerPath "development"
+    if (!(Test-Path $DevelopmentPath)) {
+        New-Item -ItemType Directory -Path $DevelopmentPath -Force | Out-Null
+        Write-Host "✓ Development directory created" -ForegroundColor Green
+    }
+    
+    # Update docker-compose to mount qonto_connector
+    $DevComposeFile = Join-Path $DevContainerPath "docker-compose.yml"
+    Write-Host "✓ Use VSCode to open frappe_docker folder" -ForegroundColor Yellow
+    Write-Host "  Command: code $FrappeDockerPath" -ForegroundColor White
+    Write-Host "  Then: Reopen in Container (Ctrl+Shift+P)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "After container starts, run inside container:" -ForegroundColor Yellow
+    Write-Host "  bench init --skip-redis-config-generation --frappe-branch version-15 frappe-bench" -ForegroundColor White
+    Write-Host "  cd frappe-bench" -ForegroundColor White
+    Write-Host "  bench set-config -g db_host mariadb" -ForegroundColor White
+    Write-Host "  bench set-config -g redis_cache redis://redis-cache:6379" -ForegroundColor White
+    Write-Host "  bench set-config -g redis_queue redis://redis-queue:6379" -ForegroundColor White
+    Write-Host "  bench set-config -g redis_socketio redis://redis-queue:6379" -ForegroundColor White
+    Write-Host "  bench new-site --mariadb-user-host-login-scope='%' --admin-password=$AdminPassword --db-root-password=$DBPassword $SiteName" -ForegroundColor White
+    Write-Host "  bench get-app erpnext --branch version-15" -ForegroundColor White
+    Write-Host "  bench --site $SiteName install-app erpnext" -ForegroundColor White
+    Write-Host "  bench get-app https://github.com/itaneo/qonto_connector --branch itaneo" -ForegroundColor White
+    Write-Host "  bench --site $SiteName install-app qonto_connector" -ForegroundColor White
+    Write-Host "  bench --site $SiteName set-config developer_mode 1" -ForegroundColor White
+    Write-Host "  bench start" -ForegroundColor White
+    Write-Host ""
+    Write-Host "For detailed instructions, see: $FrappeDockerPath\docs\development.md" -ForegroundColor Cyan
+    
 } else {
-    Write-Warning "⚠ ERPNext is starting but may need more time. Check with 'docker-compose logs -f backend'"
+    Write-Host "`n--- Setting up PRODUCTION environment ---" -ForegroundColor Cyan
+    Write-Host "Using official frappe_docker/pwd.yml configuration" -ForegroundColor Yellow
+    
+    # Check pwd.yml exists
+    $PwdYmlPath = Join-Path $FrappeDockerPath "pwd.yml"
+    if (!(Test-Path $PwdYmlPath)) {
+        Write-Host "✗ pwd.yml not found at: $PwdYmlPath" -ForegroundColor Red
+        Write-Host "  Make sure frappe_docker is up to date" -ForegroundColor Yellow
+        exit 1
+    }
+    Write-Host "✓ Found pwd.yml" -ForegroundColor Green
+    
+    # Navigate to frappe_docker directory
+    Push-Location $FrappeDockerPath
+    try {
+        if ($Pull) {
+            Write-Host "`nPulling latest images..." -ForegroundColor Yellow
+            docker compose -f pwd.yml pull
+        }
+        
+        # Start services
+        Write-Host "`nStarting services with pwd.yml..." -ForegroundColor Yellow
+        if ($Recreate) {
+            docker compose -f pwd.yml up -d --force-recreate
+        } else {
+            docker compose -f pwd.yml up -d
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "✗ Failed to start containers" -ForegroundColor Red
+            exit 1
+        }
+        
+        Write-Host "✓ Containers started" -ForegroundColor Green
+        
+        # Wait for site creation to complete (pwd.yml creates site automatically)
+        Write-Host "`nWaiting for automatic site creation..." -ForegroundColor Yellow
+        Write-Host "This may take several minutes on first run..." -ForegroundColor Yellow
+        
+        # Monitor create-site service
+        $maxWait = 300  # 5 minutes
+        $elapsed = 0
+        $siteCreated = $false
+        
+        while ($elapsed -lt $maxWait) {
+            Start-Sleep -Seconds 10
+            $elapsed += 10
+            
+            # Check if create-site container has exited successfully
+            $createSiteStatus = docker compose -f pwd.yml ps create-site --format json 2>$null | ConvertFrom-Json
+            if ($createSiteStatus.State -eq "exited" -and $createSiteStatus.ExitCode -eq 0) {
+                $siteCreated = $true
+                break
+            }
+            
+            Write-Host "." -NoNewline
+        }
+        Write-Host ""
+        
+        if ($siteCreated) {
+            Write-Host "✓ Site created successfully" -ForegroundColor Green
+            
+            # Install Qonto Connector app
+            Write-Host "`nInstalling Qonto Connector app..." -ForegroundColor Yellow
+            
+            # Check if user wants to install from git or local
+            $AppsJsonPath = Join-Path $ProjectRoot "apps.json"
+            if (Test-Path $AppsJsonPath) {
+                $appsContent = Get-Content $AppsJsonPath -Raw
+                try {
+                    $appsArray = $appsContent | ConvertFrom-Json
+                    $qontoApp = $appsArray | Where-Object { $_.url -match "qonto_connector" } | Select-Object -First 1
+                    
+                    if ($qontoApp) {
+                        $qontoUrl = $qontoApp.url
+                        $qontoBranch = if ($qontoApp.branch) { $qontoApp.branch } else { "main" }
+                        
+                        Write-Host "Installing from git: $qontoUrl" -ForegroundColor Cyan
+                        docker compose -f pwd.yml exec backend bash -c "cd /home/frappe/frappe-bench && bench get-app $qontoUrl --branch $qontoBranch && bench --site $SiteName install-app qonto_connector && bench --site $SiteName migrate"
+                    }
+                } catch {
+                    Write-Host "⚠ Could not parse apps.json, will try local install" -ForegroundColor Yellow
+                }
+            }
+            
+            # If no git install, try local copy
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Installing from local directory..." -ForegroundColor Cyan
+                
+                # Copy local qonto_connector to container
+                docker cp $QontoAppPath backend:/home/frappe/frappe-bench/apps/qonto_connector
+                
+                # Install the app
+                docker compose -f pwd.yml exec backend bash -c "cd /home/frappe/frappe-bench && bench --site $SiteName install-app qonto_connector && bench --site $SiteName migrate"
+            }
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "✓ Qonto Connector installed successfully" -ForegroundColor Green
+            } else {
+                Write-Host "⚠ Failed to install Qonto Connector" -ForegroundColor Yellow
+                Write-Host "  You can install it manually later:" -ForegroundColor Yellow
+                Write-Host "  cd $FrappeDockerPath" -ForegroundColor White
+                Write-Host "  docker compose -f pwd.yml exec backend bash" -ForegroundColor White
+                Write-Host "  bench get-app https://github.com/YOUR-USERNAME/qonto_connector" -ForegroundColor White
+                Write-Host "  bench --site $SiteName install-app qonto_connector" -ForegroundColor White
+            }
+            
+        } else {
+            Write-Host "⚠ Site creation timed out or failed" -ForegroundColor Yellow
+            Write-Host "  Check logs: docker compose -f pwd.yml logs create-site" -ForegroundColor Yellow
+        }
+        
+        # Wait for frontend
+        Write-Host "`nWaiting for frontend (may take 1-2 minutes)..." -ForegroundColor Yellow
+        $ready = $false
+        for ($i = 1; $i -le 24; $i++) {
+            Start-Sleep -Seconds 5
+            try {
+                $response = Invoke-WebRequest "http://localhost:8080" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+                if ($response.StatusCode -eq 200) {
+                    $ready = $true
+                    break
+                }
+            } catch {
+                Write-Host "." -NoNewline
+            }
+        }
+        Write-Host ""
+        
+        if ($ready) {
+            Write-Host "✓ Frontend is ready!" -ForegroundColor Green
+        } else {
+            Write-Host "⚠ Frontend may need more time" -ForegroundColor Yellow
+            Write-Host "  Check logs: docker compose -f pwd.yml logs frontend" -ForegroundColor Yellow
+        }
+        
+    } finally {
+        Pop-Location
+    }
 }
 
 # Summary
-Write-Host "`n==================================================" -ForegroundColor Magenta
-Write-Host "   Setup Complete!" -ForegroundColor Green
-Write-Host "==================================================" -ForegroundColor Magenta
-Write-Host ""
-Write-Host "Access URLs:" -ForegroundColor Cyan
-Write-Host "  Frontend:  http://localhost:8080" -ForegroundColor White
-Write-Host "  Backend:   http://localhost:8000" -ForegroundColor White
-Write-Host ""
-Write-Host "Credentials:" -ForegroundColor Cyan
-Write-Host "  Site:      $SiteName" -ForegroundColor White
-Write-Host "  Username:  Administrator" -ForegroundColor White
-Write-Host "  Password:  $AdminPasswordPlain" -ForegroundColor White
-Write-Host ""
-Write-Host "Data Location:" -ForegroundColor Cyan
-Write-Host "  $BaseDir" -ForegroundColor White
-Write-Host ""
-Write-Host "Useful Commands:" -ForegroundColor Cyan
-Write-Host "  View logs:     docker-compose logs -f" -ForegroundColor White
-Write-Host "  Stop:          docker-compose down" -ForegroundColor White
-Write-Host "  Restart:       docker-compose restart" -ForegroundColor White
-Write-Host "  Shell access:  docker exec -it erpnext-backend bash" -ForegroundColor White
-Write-Host ""
-Write-Host "Next Steps:" -ForegroundColor Cyan
-Write-Host "  1. Access ERPNext at http://localhost:8080" -ForegroundColor White
-Write-Host "  2. Log in with Administrator/$AdminPasswordPlain" -ForegroundColor White
-Write-Host "  3. Navigate to Qonto Settings (already installed)" -ForegroundColor White
-Write-Host "  4. Configure your Qonto API credentials" -ForegroundColor White
-Write-Host "  5. Set up account mappings and start syncing" -ForegroundColor White
-Write-Host ""
-Write-Host "==================================================" -ForegroundColor Magenta
+Write-Host "`n===========================================================" -ForegroundColor Green
+Write-Host " ✓ Setup Complete! ($Mode mode)" -ForegroundColor Green
+Write-Host "===========================================================" -ForegroundColor Green
 Write-Host ""
 
+if ($Mode -eq "development") {
+    Write-Host "Next Steps:" -ForegroundColor Cyan
+    Write-Host "  1. Open VSCode: code $FrappeDockerPath" -ForegroundColor White
+    Write-Host "  2. Reopen in Container (Ctrl+Shift+P)" -ForegroundColor White
+    Write-Host "  3. Follow the instructions above to setup bench" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Documentation: $FrappeDockerPath\docs\development.md" -ForegroundColor Cyan
+} else {
+    Write-Host "Access ERPNext at: http://localhost:8080" -ForegroundColor Cyan
+    Write-Host "Login: Administrator / admin" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "⚠ IMPORTANT: Change default password immediately!" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Manage services with:" -ForegroundColor Yellow
+    Write-Host "  cd $FrappeDockerPath" -ForegroundColor White
+    Write-Host "  docker compose -f pwd.yml stop" -ForegroundColor White
+    Write-Host "  docker compose -f pwd.yml start" -ForegroundColor White
+    Write-Host "  docker compose -f pwd.yml logs -f" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Or use convenience scripts:" -ForegroundColor Yellow
+    Write-Host "  .\tools\start-erpnext.ps1 -FrappeDockerPath $FrappeDockerPath" -ForegroundColor White
+    Write-Host "  .\tools\stop-erpnext.ps1 -FrappeDockerPath $FrappeDockerPath" -ForegroundColor White
+    Write-Host "  .\tools\logs-erpnext.ps1 -FrappeDockerPath $FrappeDockerPath" -ForegroundColor White
+}
+
+Write-Host "===========================================================" -ForegroundColor Green
+Write-Host ""

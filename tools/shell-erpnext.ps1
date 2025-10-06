@@ -24,14 +24,30 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ContainerName = "erpnext-backend"
 
-# Check if container is running
-$running = docker ps --filter "name=$ContainerName" --format "{{.Names}}" 2>$null
+# Try to find backend container (works for both production and development)
+$ProjectName = (Split-Path -Parent $PSScriptRoot | Split-Path -Leaf) -replace '[^a-z0-9]', ''
+$PossibleNames = @(
+    "${ProjectName}-backend-1",
+    "erpnext-qonto-backend-1",
+    "erpnext-backend",
+    "backend"
+)
 
-if ($running -ne $ContainerName) {
-    Write-Host "✗ Container $ContainerName is not running" -ForegroundColor Red
-    Write-Host "  Start it with: .\start-erpnext.ps1" -ForegroundColor Yellow
+$ContainerName = $null
+foreach ($name in $PossibleNames) {
+    $running = docker ps --filter "name=$name" --format "{{.Names}}" 2>$null
+    if ($running) {
+        $ContainerName = $running
+        break
+    }
+}
+
+if (-not $ContainerName) {
+    Write-Host "✗ Backend container not running" -ForegroundColor Red
+    Write-Host "  Available containers:" -ForegroundColor Yellow
+    docker ps --format "table {{.Names}}\t{{.Status}}"
+    Write-Host "`n  Start containers with: .\start-erpnext.ps1" -ForegroundColor Yellow
     exit 1
 }
 
